@@ -1,0 +1,14 @@
+docs/
+figures/
+data/
+
+*.html
+*_cache
+*_files
+
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+*_cache

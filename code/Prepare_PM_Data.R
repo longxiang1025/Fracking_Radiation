@@ -22,38 +22,38 @@ library(gridExtra)
 library(gamm4)
 library(ggmap)
 
-study_period<-interval(ymd("2007-01-01"),ymd("2016-12-31"))
-prod_period<-interval(ymd("2007-01-01"),ymd("2018-09-10"))
+study_period<-interval(ymd("2001-01-01"),ymd("2016-12-31"))
+prod_period<-interval(ymd("2001-01-01"),ymd("2018-09-10"))
 prjstring<-"+proj=aea +lat_1=20 +lat_2=60 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs "
 geoprjstring<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 #+ load-data and merge all PM mass data, message=F,echo=F
-pm_mass_monitor_list<-load("data/PM_Mass/PM_MONITOR_ID_CONVERSION_TABLE.RData")
+load(here::here("data","PM_MONITOR_ID_CONVERSION_TABLE.RData"))
 pm_mass_files<-list.files("data/PM_Mass/",full.names = T)
 pm_mass_container<-list()
-for(year in 2007:2016){
+for(year in 2001:2017){
   annual_pm<-read_csv(pm_mass_files[grepl(as.character(year),pm_mass_files)])%>%
     dplyr::select(c("State Code","County Code","Site Num","Arithmetic Mean","Date Local"))
   annual_pm$ID<-paste0(annual_pm$`State Code`,annual_pm$`County Code`,annual_pm$`Site Num`,year)
-  annual_pm<-left_join(annual_pm,PM_MONITOR_ID_CONVERSION_TABLE,by="ID")
-  pm_mass_container[[year-2006]]<-annual_pm
+  annual_pm<-left_join(annual_pm,monitor_list,by="ID")
+  pm_mass_container[[year-2000]]<-annual_pm
 }
 pm_mass_data<-do.call(rbind,pm_mass_container)
-save(file="data/PM_Mass/Daily_PM_Data.RData",pm_mass_data)
+save(file="data/Daily_PM_Data.RData",pm_mass_data)
 #+ load-data and merge all PM speciation data, message=F,echo=F
 load("data/PM_Spec/Para_List.RData")
 pm_spec_files<-list.files("data/PM_Spec/",full.names = T)
 pm_spec_container<-list()
-for(year in 2007:2016){
+for(year in 2001:2017){
   annual_spec<-read_csv(pm_spec_files[grepl(as.character(year),pm_spec_files)])
   annual_spec<-dplyr::filter(annual_spec,annual_spec$`Parameter Name`%in%para.list$Para)
   annual_spec<-dplyr::select(annual_spec,c("State Code","County Code","Site Num","Parameter Name","Arithmetic Mean","Date Local"))
   annual_spec$ID<-paste0(annual_spec$`State Code`,annual_spec$`County Code`,annual_spec$`Site Num`,year)
-  annual_spec<-left_join(annual_spec,PM_MONITOR_ID_CONVERSION_TABLE,by="ID")
-  annual_spec<-dplyr::select(annual_spec,c("Parameter Name","Arithmetic Mean","Date Local","Uni_ID","x","y"))
-  pm_spec_container[[year-2006]]<-annual_spec
+  annual_spec<-left_join(annual_spec,monitor_list,by="ID")
+  annual_spec<-dplyr::select(annual_spec,c("Parameter Name","Arithmetic Mean","Date Local","Uni_ID"))
+  pm_spec_container[[year-2000]]<-annual_spec
 }
 pm_spec_data<-do.call(rbind,pm_spec_container)
-save(file="data/PM_Mass/Daily_PM_Spec_Data.RData",pm_spec_data)
+save(file="data/Daily_PM_Spec_Data.RData",pm_spec_data)
 #+ link PM Mass&Speciation site with RadNet city_list
 PM_site_list<-PM_MONITOR_ID_CONVERSION_TABLE[,c("Uni_ID","x","y")]
 coordinates(PM_site_list)<-~x+y

@@ -44,8 +44,8 @@ library(tidyverse)
 library(reshape2)
 library(MASS)
 #+ load-data,message=F,echo=F
-study_period<-interval(ymd("2007-01-01"),ymd("2016-12-31"))
-prod_period<-interval(ymd("2007-01-01"),ymd("2018-09-10"))
+study_period<-interval(ymd("2001-01-01"),ymd("2017-12-31"))
+prod_period<-interval(ymd("2001-01-01"),ymd("2018-09-10"))
 prjstring<-"+proj=aea +lat_1=20 +lat_2=60 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs "
 geoprjstring<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 load( here::here("data","RadNet_And_Gas_50B.Rdata"))

@@ -61,6 +61,25 @@ pm_spec_data<-pm_spec_data[,c("Date Local","Arithmetic Mean","Uni_ID","Parameter
 names(pm_spec_data)[2]<-"pm_spec"
 dbWriteTable(con,"PM_Spec_Measurement",value=pm_spec_data,append=T,rownames=F)
 
+#create the table of gamma measurement time series
+load(here::here("data","gamma_data.RData"))
+state_city<-do.call(rbind,strsplit(gamma_data$LOCATION_NAME,split = ":"))
+city_state<-paste0(state_city[,2],",",state_city[,1])
+city_state<-gsub("[[:blank:]]", "",city_state)
+gamma_data$city_state<-city_state
+gamma_data<-gamma_data[city_state%in%unique(RadNet_City_List$city_state),]
+dbWriteTable(con,"Gamma_Measurement",value =gamma_data,append=T,rownames=F)
+
+#create the table of nuclide measurement
+load(here::here("data","nuclide_data.RData"))
+nuc_data$Location<-gsub("[[:blank:]]", "",nuc_data$Location)
+nuc_data<-nuc_data[nuc_data$Location%in%unique(RadNet_City_List$city_state),]
+names(nuc_data)<-c("Location","Medium","Date","Procedure_Name","Nuclides","Result","Uncertainty","MDC","Unit")
+nuc_data<-distinct(.data=nuc_data,Location,Nuclides,Date,.keep_all=T)
+nuc_data$Result<-as.numeric(nuc_data$Result)
+nuc_data[nuc_data$Unit=="aCi/m3",]$Result<-nuc_data[nuc_data$Unit=="aCi/m3",]$Result/1000000
+nuc_data$Unit<-"pCi/m3"
+dbWriteTable(con,"Nuclide_Measurement",value = nuc_data,append=T,rownames=F)
 #sample selection
 #case 1: select all meaurements of pm mass around dallas.tx in 2007
 cmd<-"SELECT \"Monitor_ID\",\"Date Local\" AS \"Date\",\"pm_mass\",\"city\"

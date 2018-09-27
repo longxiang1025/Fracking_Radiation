@@ -38,11 +38,36 @@ dbWriteTable(con, "radnet_measurement_table",
 
 #create the table of gas_well_header from the active_wells data
 load(here::here("data","All_Gas_Wells_Active_After_2001.RData"))
-pgInsert(con,name="Gas_Well_Headers",data.obj=header_list)
-#create the table of  production to store all monthlty production data
+#pgInsert(con,name="Gas_Well_Headers",data.obj=header_list)
+#create the table of  production to store all monthlty gas production data
 load(here::here("data","All_Gas_Wells_Active_After_2001_Production_Series.RData"))
-dbWriteTable(con, "production_table", 
+production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)
+production_data<-production_data%>%
+  group_by(production_data$'API/UWI',production_data$'Monthly Production Date')%>%
+  summarise(Monthly_Gas=sum(production_data$'Monthly Gas',na.rm=T),
+            Monthly_Oil=sum(production_data$'Monthly Oil',na.rm=T),
+            Monthly_Water=sum(production_data$'Monthly Water',na.rm=T)
+  )
+names(production_data)<-c("API/UWI","Monthly_Production_Date","Monthly_Gas","Monthly_Oil","Monthly_Water")
+dbWriteTable(con, "Gas_Production_Table", 
              value = production_data, append = TRUE, row.names = FALSE)
+
+#create the table of oil_well_header from the active_wells data
+load(here::here("data","All_Oil_Wells_Active_After_2001.RData"))
+pgInsert(con,name="Oil_Well_Headers",data.obj=header_list)
+#create the table of  production to store all monthlty oil production data
+load(here::here("data","All_Oil_Wells_Active_After_2001_Production_Series.RData"))
+production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)
+production_data<-production_data%>%
+  group_by(production_data$'API/UWI',production_data$'Monthly Production Date')%>%
+  summarise(Monthly_Gas=sum(production_data$'Monthly Gas',na.rm=T),
+            Monthly_Oil=sum(production_data$'Monthly Oil',na.rm=T),
+            Monthly_Water=sum(production_data$'Monthly Water',na.rm=T)
+            )
+names(production_data)<-c("API/UWI","Monthly_Production_Date","Monthly_Gas","Monthly_Oil","Monthly_Water")
+dbWriteTable(con, "Oil_Production_Table", 
+             value = production_data, append = TRUE, row.names = FALSE)
+
 #create the table of pm monitors
 load(here::here("data","PM_MONITOR_ID_CONVERSION_TABLE.RData"))
 monitor_list<-distinct(monitor_list[,c("Uni_ID","Longitude","Latitude")])
@@ -106,3 +131,10 @@ dallas_month_sulfate<- dbGetQuery(con, cmd)
 dallas_month_sulfate<-filter(dallas_month_sulfate,city=="DALLAS,TX")
 dallas_month_sulfate$Monitor_ID<-as.factor(dallas_month_sulfate$Monitor_ID)
 p<-ggplot(dallas_month_sulfate,aes(x=m_month,y=spec,color=Monitor_ID))+geom_line(size=2)
+
+rad_k<-raster(here::here("data","USGS_Radiometric","NAMrad_K.tif"))
+rad_th<-raster(here::here("data","USGS_Radiometric","NAMrad_Th.tif"))
+rad_u<-raster(here::here("data","USGS_Radiometric","NAMrad_U1.tif"))
+rad_stack<-stack(rad_k,rad_th,rad_u)
+pgSRID(con,CRS(proj4string(rad_data)),create.srid = T, new.srid = 880001)
+pgWriteRast(con, "USGS_RadioRaster",rad_data)

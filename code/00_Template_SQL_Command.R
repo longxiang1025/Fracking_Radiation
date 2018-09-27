@@ -16,3 +16,20 @@ FROM \"PM_Spec_Measurement\",(SELECT \"Uni_ID\" AS \"ID\",\"city_state\" AS \"ci
 WHERE \"Monitor_ID\" = \"ID\" AND (\"Date Local\" BETWEEN '01/01/2001' AND '12/31/2018') AND city='CITYNAME'
 GROUP BY \"Monitor_ID\",\"m_month\",\"Parameter Name\"
 "
+
+radnet_raster_cmd<-"
+SELECT \"city_state\",(K_stats).\"mean\" AS \"Kmeans\",(K_stats).\"stddev\" AS \"Ksd\",(Th_stats).\"mean\" AS \"Thmeans\",(Th_stats).\"stddev\" AS \"Thsd\",(U_stats).\"mean\" AS \"Umeans\",(U_stats).\"stddev\" AS \"Usd\"
+FROM(SELECT ST_SummaryStatsAgg(ST_Clip(\"rast\",ST_Buffer(ST_Transform(radnet_geom,ST_SRID(\"rast\")),50000)),1,TRUE) AS K_stats,
+ST_SummaryStatsAgg(ST_Clip(\"rast\",ST_Buffer(ST_Transform(radnet_geom,ST_SRID(\"rast\")),50000)),2,TRUE) AS Th_stats,
+ST_SummaryStatsAgg(ST_Clip(\"rast\",ST_Buffer(ST_Transform(radnet_geom,ST_SRID(\"rast\")),50000)),3,TRUE) AS U_stats,
+\"city_state\"
+FROM \"RadNet_Sp\",\"USGS_RadioRaster\"
+GROUP BY \"city_state\") AS foo;
+"
+
+radnet_basin_cmd<-"
+SELECT \"city_state\",\"name\" AS \"basin_name\"
+FROM \"RadNet_Sp\", \"us_basin\"
+WHERE ST_Intersects(\"radnet_geom\",\"basin_geom\")
+ORDER BY \"city_state\"
+"

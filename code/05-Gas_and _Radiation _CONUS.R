@@ -22,18 +22,17 @@ library(gridExtra)
 library(gamm4)
 library(ggmap)
 #+ load all header csv file and clean the data based on production (Some states sperated), message=FALSE,warning=F,echo=F, cache = T
-setwd("C:/Users/lol087/Dropbox (Personal)/2018-08-09-DrillingInfo/data/")
 study_period<-interval(ymd("2002-01-01"),ymd("2017-12-31"))
 prod_period<-interval(ymd("2002-01-01"),ymd("2018-09-10"))
 prjstring<-"+proj=aea +lat_1=20 +lat_2=60 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs "
 geoprjstring<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-header_files<-list.files("raw/production-headers/",full.names = T)
+header_files<-list.files(here::here("data","gas_production_headers"),full.names = T)
 header_list<-list()
 header_names<-c( "API/UWI","Reservoir","Drill Type","First Prod Date","Last Prod Date","Completion Date","Spud Date","Surface Latitude (WGS84)","Surface Longitude (WGS84)")
 for(i in 1:length(header_files)){
   header<-read_csv((header_files[i]))
   header<-dplyr::filter(header,header$'Drill Type'=="V"|header$`Drill Type`=="H")
-  header<-dplyr::filter(header,header$`Production Type`=="GAS")
+  header<-dplyr::filter(header,header$`Production Type`=="CBM" ||header$`Production Type`=="OIL" ||header$`Production Type`=="GAS" )
   header<-dplyr::filter(header,header$`Months Produced`>0)
   header<-dplyr::filter(header,header$`Last Prod Date`%within%prod_period)
   header<-dplyr::filter(header,(!is.na(header$`Surface Latitude (WGS84)`))&(!is.na(header$`Surface Longitude (WGS84)`)))
@@ -41,7 +40,7 @@ for(i in 1:length(header_files)){
   header$Reservoir<-as.character(header$Reservoir)
   header$`Completion Date`<-as.Date(header$`Completion Date`)
   header_list[[i]]<-header
-  header$`Completion Date`
+  #header$`Completion Date`
   #print(paste(i,nrow(header)))
 }
 header_list<-do.call(rbind,header_list)
@@ -51,18 +50,16 @@ header_list<-header_list[!header_list$`API/UWI`=="0",]
 header_list<-distinct(header_list,header_list$`API/UWI`,.keep_all=T)
 coordinates(header_list)<-~Longitude+Latitude
 proj4string(header_list)<-geoprjstring
-save(header_list,file="All_Gas_Wells_Active_After_2007.RData")
+save(header_list,file=here::here("data","All_Gas_Wells_Active_After_2001.RData"))
 #+Plot the active production activity in the lower 48 states (Data from drillinginfo.com) ,echo=F,message=F,cache=T,fig.width=15,fig.height=9
-setwd("C:/Users/lol087/Dropbox (Personal)/2018-08-09-DrillingInfo/data/")
-load("Basic_Geodata/Boundaries.RData")
+load(here::here("data","Basic_Geodata/Boundaries.RData"))
 plot(bound)
 plot(header_list,add=T)
 title("Gas Production in the lower 48 states")
 #+ load all production time series csv file and clean the data based on header list, message=FALSE,warning=F,echo=F, cache = T
-setwd("C:/Users/lol087/Dropbox (Personal)/2018-08-09-DrillingInfo/data/")
-production_files<-list.files("raw/production-time-series/",full.names = T)
+production_files<-list.files(here::here("data","gas_production_time_series"),full.names = T)
 production_list<-list()
-production_names<-c("API/UWI","Monthly Production Date", "Monthly Gas","Monthly Water")
+production_names<-c("API/UWI","Monthly Production Date", "Monthly Gas","Monthly Oil","Monthly Water")
 for(i in 1:length(production_files)){
   production<-read_csv(production_files[i])
   production<-production[,production_names]
@@ -72,12 +69,13 @@ for(i in 1:length(production_files)){
   production$`Monthly Production Date`<-as.Date(production$`Monthly Production Date`)
   production$`Monthly Gas`<-as.numeric(production$`Monthly Gas`)
   production$`Monthly Water`<-as.numeric(production$`Monthly Water`)
+  production$`Monthly Oil`<-as.numeric(production$`Monthly Oil`)
   production_list[[i]]<-production
   print(i)
 }
 production_data<-bind_rows(production_list)
 production_data<-do.call(rbind,production_list)
-save(production_data,file="All_Gas_Wells_Active_After_2001_Production_Series.RData")
+save(production_data,file=here::here("data","All_Gas_Wells_Active_After_2001_Production_Series.RData"))
 #+ load all RadNet Data, message=FALSE,warning=F,echo=F, cache = T
 rad<-read_csv(("C:/Users/lol087/Dropbox (Personal)/BetaExplore/data/Processed-RadNet-Beta-byMeas.csv")) %>% 
   mutate(month = lubridate::month(collect_start),

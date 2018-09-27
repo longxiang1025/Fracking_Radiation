@@ -41,7 +41,7 @@ rm(pw) # removes the password
 source(here::here("code","00_Template_SQL_Command.R"))
 RadNet_City_List<-read_csv(here::here("data","Processed-RadNet-Beta-citylist.csv"))
 radnet_usgs_radio<-read_csv(here::here("data","radnet_radioraster_summary.csv"))
-radnet_usgs_radio$city_state<-RadNet_City_List$city_state
+radnet_usgs_radio$city_state<-paste0(radnet_usgs_radio$city,",",radnet_usgs_radio$state)
 radnet_basin_table<-dbGetQuery(con,radnet_basin_cmd)
 for(r in c(25000,50000,75000,100000)){
   total_gas_cmd<-"

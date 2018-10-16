@@ -26,9 +26,9 @@ study_period<-interval(ymd("2002-01-01"),ymd("2017-12-31"))
 prod_period<-interval(ymd("2002-01-01"),ymd("2018-09-10"))
 prjstring<-"+proj=aea +lat_1=20 +lat_2=60 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs "
 geoprjstring<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-header_files<-list.files(here::here("data","gas_production_headers"),full.names = T)
+header_files<-list.files(here::here("data","oil_production_headers"),full.names = T)
 header_list<-list()
-header_names<-c( "API/UWI","Reservoir","Drill Type","First Prod Date","Last Prod Date","Completion Date","Spud Date","Surface Latitude (WGS84)","Surface Longitude (WGS84)")
+header_names<-c( "API/UWI","Reservoir","Drill Type","First Prod Date","Last Prod Date","Completion Date","Spud Date","Surface Latitude (WGS84)","Surface Longitude (WGS84)","Measured Depth (TD)","True Vertical Depth")
 for(i in 1:length(header_files)){
   header<-read_csv((header_files[i]))
   header<-dplyr::filter(header,header$'Drill Type'=="V"|header$`Drill Type`=="H")
@@ -50,7 +50,7 @@ header_list<-header_list[!header_list$`API/UWI`=="0",]
 header_list<-distinct(header_list,header_list$`API/UWI`,.keep_all=T)
 coordinates(header_list)<-~Longitude+Latitude
 proj4string(header_list)<-geoprjstring
-save(header_list,file=here::here("data","All_Gas_Wells_Active_After_2001.RData"))
+save(header_list,file=here::here("data","All_Oil_Wells_Active_After_2001.RData"))
 #+Plot the active production activity in the lower 48 states (Data from drillinginfo.com) ,echo=F,message=F,cache=T,fig.width=15,fig.height=9
 load(here::here("data","Basic_Geodata/Boundaries.RData"))
 plot(bound)

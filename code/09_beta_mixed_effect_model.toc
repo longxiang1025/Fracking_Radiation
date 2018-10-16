@@ -1,0 +1,15 @@
+\contentsline {section}{Introduction}{1}{section*.2}
+\contentsline {section}{Background}{1}{section*.3}
+\contentsline {section}{Data}{1}{section*.4}
+\contentsline {subsection}{Study Period: from 2010 to 2016:}{1}{section*.5}
+\contentsline {subsection}{Study Region:}{2}{section*.6}
+\contentsline {subsection}{Data Sources:}{2}{section*.7}
+\contentsline {subsubsection}{Oil/Gas production data:}{2}{section*.8}
+\contentsline {subsubsection}{\(\beta \) radiation data:}{2}{section*.9}
+\contentsline {subsubsection}{USGS radiation potential map:}{2}{section*.10}
+\contentsline {subsubsection}{EPA radon zone map:}{2}{section*.11}
+\contentsline {section}{Descriptive Analysis of the data}{2}{section*.12}
+\contentsline {section}{Models}{5}{section*.13}
+\contentsline {subsection}{Gross Oil Production}{5}{section*.14}
+\contentsline {subsection}{Horizontal Oil Production}{6}{section*.15}
+\contentsline {subsection}{Vertical Oil Production}{7}{section*.16}

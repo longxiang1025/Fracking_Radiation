@@ -2,6 +2,7 @@ require("RPostgreSQL")
 library(rpostgis)
 library(lubridate)
 library(dplyr)
+library(wkb)
 pw <- {
   "koutrakis"
 }
@@ -38,7 +39,7 @@ dbWriteTable(con, "radnet_measurement_table",
 
 #create the table of gas_well_header from the active_wells data
 load(here::here("data","All_Gas_Wells_Active_After_2001.RData"))
-#pgInsert(con,name="Gas_Well_Headers",data.obj=header_list)
+pgInsert(con,name="Gas_Well_Headers",data.obj=header_list)
 #create the table of  production to store all monthlty gas production data
 load(here::here("data","All_Gas_Wells_Active_After_2001_Production_Series.RData"))
 production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)
@@ -54,7 +55,7 @@ dbWriteTable(con, "Gas_Production_Table",
 
 #create the table of oil_well_header from the active_wells data
 load(here::here("data","All_Oil_Wells_Active_After_2001.RData"))
-pgInsert(con,name="Oil_Well_Headers",data.obj=header_list)
+pgInsert(con,name="Oil_Well_Headers",data.obj=header_list,geom = "oil_gas_geom")
 #create the table of  production to store all monthlty oil production data
 load(here::here("data","All_Oil_Wells_Active_After_2001_Production_Series.RData"))
 production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)

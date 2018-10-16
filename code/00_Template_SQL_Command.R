@@ -33,3 +33,17 @@ FROM \"RadNet_Sp\", \"us_basin\"
 WHERE ST_Intersects(\"radnet_geom\",\"basin_geom\")
 ORDER BY \"city_state\"
 "
+
+gas_construction_cmd<-"
+SELECT \"API/UWI\",\"Spud Date\",\"Completion Date\",\"city_state\",\"Last Prod Date\",\"Drill Type\"
+FROM \"Gas_Well_Headers\",\"RadNet_Sp\" 
+WHERE ST_DistanceSphere(\"gas_well_geom\",\"radnet_geom\")<RADIUS
+ORDER BY \"Spud Date\"
+"
+
+oil_construction_cmd<-"
+SELECT \"API/UWI\",\"Spud Date\",\"Completion Date\",\"city_state\",\"Last Prod Date\",\"Drill Type\"
+FROM \"Oil_Well_Headers\",\"RadNet_Sp\" 
+WHERE ST_DistanceSphere(\"oil_well_geom\",\"radnet_geom\")<RADIUS
+ORDER BY \"Spud Date\"
+"

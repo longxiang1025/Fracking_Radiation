@@ -11,7 +11,6 @@ load(here::here("data","beta_gas_oil_avg_wind_25.RData"))
 rad_all<-rad_all%>%filter(city_state!="EUREKA,CA")
 rad_all<-rad_all%>%filter(city_state!="LUBBOCK,TX")
 rad_all<-rad_all%>%filter(!is.na(mass))
-rad_all[is.na(rad_all$Radon),]$Radon=6
 rad_all$basin<-as.factor(rad_all$basin)
 #rad_all$log_dist<-log(rad_all$Coast_Dist)
 rad_all$log_pb<-log(rad_all$pb210)

@@ -13,7 +13,7 @@
 #' 
 #' # Background
 #' 
-#' * Long-term exposure to low-level radon is dangerous. This has been proved in multiple studies.
+#' * Long-term exposure to low-level radon is dangerous. Because radon is carcinogenic.
 #' 
 #' * Direct long-term measurement of radon is rare.
 #' 
@@ -47,261 +47,314 @@
 library(dplyr)
 library(lme4)
 library(nlme)
+library(lmerTest)
+library(mgcv)
 library(ggplot2)
+library(spdep)
+library(psych)
 options(dplyr.print_max = 1e9)
 #' In this report, we first set the radius as 25km. If there's any oil/gas production within
 #' this circle in the study period, this RadNet monitor is categorized as within gas/oil field.
 #' Otherwise, this RadNet monitor is categorized as clean ones.
 #+ Loading the Lead-210 and gas/oil production data within 25km, message=F, echo=F,warning=F 
-load(here::here("data","pb_gas_oil_25.RData"))
-rad_all[rad_all$city_state=="MIAMI,FL",]$radon=1
-rad_all$lpb<-log(rad_all$pb210)
-rad_all$Oil_Num<-rad_all$H_Oil_Num+rad_all$V_Oil_Num
-rad_all$Gas_Num<-rad_all$H_Gas_Num+rad_all$V_Gas_Num
-rad_all$Oil_Prod<-rad_all$H_Oil_Prod+rad_all$V_Oil_Prod
-rad_all$Gas_Prod<-rad_all$H_Gas_Prod+rad_all$V_Gas_Prod
-summary_result<-rad_all%>%
-  group_by(city_state)%>%
-  summarise(min_gas_num=min(Gas_Num,na.rm = T),
-            max_gas_num=max(Gas_Num,na.rm = T),
-            min_gas_prod=min(Gas_Prod,na.rm=T),
-            max_gas_prod=max(Gas_Prod,na.rm=T),
-            min_gas_h_prod=min(H_Gas_Prod,na.rm=T),
-            max_gas_h_prod=max(H_Gas_Prod,na.rm=T),
-            min_gas_v_prod=min(V_Gas_Prod,na.rm=T),
-            max_gas_v_prod=max(V_Gas_Prod,na.rm=T),
-            min_gas_h_num=min(H_Gas_Num,na.rm = T),
-            max_gas_h_num=max(H_Gas_Num,na.rm = T),
-            min_gas_v_num=min(V_Gas_Num,na.rm = T),
-            max_gas_v_num=max(V_Gas_Num,na.rm = T),
-            min_oil_num=min(Oil_Num,na.rm = T),
-            max_oil_num=max(Oil_Num,na.rm = T),
-            min_oil_prod=min(Oil_Prod,na.rm=T),
-            max_oil_prod=max(Oil_Prod,na.rm=T),
-            min_oil_h_prod=min(H_Oil_Prod,na.rm=T),
-            max_oil_h_prod=max(H_Oil_Prod,na.rm=T),
-            min_oil_v_prod=min(V_Oil_Prod,na.rm=T),
-            max_oil_v_prod=max(V_Oil_Prod,na.rm=T),
-            min_oil_h_num=min(H_Oil_Num,na.rm = T),
-            max_oil_h_num=max(H_Oil_Num,na.rm = T),
-            min_oil_v_num=min(V_Oil_Num,na.rm = T),
-            max_oil_v_num=max(V_Oil_Num,na.rm = T),
-            min_num=min(Oil_Num,na.rm = T),
-            max_num=max(Oil_Num,na.rm = T),
-            mean_beta=mean(beta,na.rm=T)
-  )
-#+ Select gas field dataset and oil field dataset, message=F, echo=F, fig.with=16, fig.height=9
-rad_all$gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_prod>0,]$city_state)
-rad_all$oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_prod>0,]$city_state)
-rad_all$h_oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_h_prod>0,]$city_state)
-rad_all$h_gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_h_prod>0,]$city_state)
-rad_all$v_oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_v_prod>0,]$city_state)
-rad_all$v_gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_v_prod>0,]$city_state)
-#'# Descriptive statistic of the data
-#' * Annual Pb210 is negatively related with EPA radon zone. Here we treat the ordered
-#' categorical radon zone as continuous.
-#+ Plot the negative correlation between EPA radon zone and Pb210, echo=F,warning=F, fig.width=16, fig.height=9
-ggplot(data=rad_all,aes(x=radon,y=pb210,group=radon))+geom_boxplot()
-#' * Even though oil fields has lower radon level, but they have higher Pb210 level.
-#' This relation also applies to the natural gas drilling.
-#+ Plot the contribution of oil field on Pb210, echo=F,fig.width=16,fig.height=9
-rad_all%>%group_by(oil_field)%>%summarise(mean_radon=mean(radon))
-rad_all%>%group_by(gas_field)%>%summarise(mean_radon=mean(radon))
-p1<-ggplot(data=rad_all,aes(x=oil_field,y=pb210))+geom_boxplot()
-p2<-ggplot(data=rad_all,aes(x=gas_field,y=pb210))+geom_boxplot()
-cowplot::plot_grid(p1,p2)
-#' * The oil/gas data is skewed. But the pb210 measurement is almost normal. Radon zone 
-#' is almost evenly distributed.
-#+ Plot the distribution of oil/gas prod and pb210, echo=F,message=F, fig.width=16, fig.height=16
-h1<-ggplot(data=rad_all,aes(x=Gas_Prod))+geom_histogram()
-h2<-ggplot(data=rad_all,aes(x=Oil_Prod))+geom_histogram()
-h3<-ggplot(data=rad_all,aes(x=pb210))+geom_histogram()
-h4<-ggplot(data=rad_all,aes(x=radon))+geom_histogram()
-cowplot::plot_grid(h1,h2,h3,h4)
-#'# Models
-#'Mixed effects models are used in this report to model the correlation between our 
-#'variable of interest and the Lead-210. Our variables of interest are always set as
-#' fixed effect while random intercepts are assigned to each RadNet monitor. In addition,
-#' radon zone is also set as fixed effect. To check the significance of our fixed effect,
-#' a bootstrp confidence interval is calculated. In addition, a likelihood-ratio test is also
-#' applied here.  
-#'   
-#'##Gross Oil Production
-#'Oil production is the sum of monthly oil production from all wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' gross oil production is significantly correlated with the annual Lead-210. Adding oil
-#' production doesn't influence the slope of radon remarkably. After log-transformation, the gross
-#' oil production is weakly related with log(Pb210). The p-value is so close to cutoff that more
-#' simulation is needed.
-#+ Model the correlation between oil production and Lead-210,warning=F,message=F
-model_basic<-lmer(pb210~radon+YEAR+(1|city_state),data=rad_all,REML=T)
-fixed.effects(model_basic)
-model_oil_prod<-lmer(pb210~radon+Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_oil_prod,method="boot")
-anova(model_basic,model_oil_prod)
-fixed.effects(model_oil_prod)
+load(here::here("data","pb_gas_oil_50.RData"))
+load(here::here("data","beta_gas_oil_avg_wind_25.RData"))
+rad_all<-rad_all%>%filter(city_state!="EUREKA,CA")
+rad_all<-rad_all%>%filter(city_state!="LUBBOCK,TX")
+rad_all<-rad_all%>%filter(!is.na(mass))
+##############################################
+#Massage the pb-210 dataset
+rad_cross[is.na(rad_cross$Radon),]$Radon=6
+rad_cross$basin<-as.factor(rad_cross$basin)
+rad_cross$log_dist<-log(rad_cross$Coast_Dist)
+rad_cross$log_pb<-log(rad_cross$pb210)
 
-model_log_basic<-lmer(lpb~radon+YEAR+(1|city_state),data=rad_all,REML=T)
-model_log_oil_prod<-lmer(lpb~radon+Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_oil_prod,method="boot")
-anova(model_log_oil_prod,model_log_basic)
-#' A tentative diagnostic based largely on leverage is applied here to check whether this
-#' correlation is stable. Otherwise, it can be influenced by few influential measurements.
-#' Based on the qqnorm and leverage plot, we can see that the residual of this model is largely
-#' normally distributed except for some limit values. After removing the measurements with
-#' very big leverage value, the slope of gross oil production doesn't change remarkbly, only 5%
-#' of the standard deviation. The updated confidence interval after removing these measurements
-#' still doesn't cover 0, meansing this correlation is stable and significant.
-#+ Model diagonostic for oil production, fig.width=16, fig.height=9, echo=T,message=F,warning=F
-g1<-ggplot(as.data.frame(resid(model_oil_prod)), aes(sample = resid(model_oil_prod)))+stat_qq() + stat_qq_line()
-g2<-ggplot(data.frame(lev=hatvalues(model_oil_prod),pearson=residuals(model_oil_prod,type="pearson")),
-           aes(x=lev,y=pearson)) +
-  geom_point() +
-  theme_bw()
-cowplot::plot_grid(g1,g2)
-levId <- which(hatvalues(model_oil_prod) >= .5)
-rad_all[levId,c("pb210","radon","Oil_Prod","YEAR","city_state")]
-model_oil_diag <- lmer(pb210 ~ radon + Oil_Prod + YEAR+ (1|city_state), data=rad_all[-c(levId),])
-LevCD <- data.frame(effect=fixef(model_oil_prod),
-                      change=(fixef(model_oil_diag) - fixef(model_oil_prod)),
-                      se=sqrt(diag(vcov(model_oil_prod)))
+rad_cross$Oil_Field<-(rad_cross$G_Oil_Num>0)
+rad_cross$Gas_Field<-(rad_cross$G_Gas_Num>0)
+rad_cross$Play<-rad_cross$Oil_Field|rad_cross$Gas_Field
+
+rad_cross$G_Oil_Prod<-rad_cross$G_Oil_Prod/1e6
+rad_cross$H_Oil_Prod<-rad_cross$H_Oil_Prod/1e6
+rad_cross$V_Oil_Prod<-rad_cross$V_Oil_Prod/1e6
+rad_cross$G_Gas_Prod<-rad_cross$G_Gas_Prod/1e6
+rad_cross$H_Gas_Prod<-rad_cross$H_Gas_Prod/1e6
+rad_cross$V_Gas_Prod<-rad_cross$V_Gas_Prod/1e6
+###################################################
+#Massage the beta dataset
+
+rad_all[is.na(rad_all$Radon),]$Radon=6
+rad_all$basin<-as.factor(rad_all$basin)
+#rad_all$log_dist<-log(rad_all$Coast_Dist)
+rad_all$log_pb<-log(rad_all$pb210)
+rad_all$Oil_Field<-(rad_all$G_Oil_Num>0)
+rad_all$Gas_Field<-(rad_all$G_Gas_Num>0)
+rad_all$Play<-rad_all$Oil_Field|rad_all$Gas_Field
+
+rad_all[,grep("Prod",names(rad_all))]=rad_all[,grep("Prod",names(rad_all))]/1e6
+rad_all[,grep("Num",names(rad_all))]=rad_all[,grep("Num",names(rad_all))]/1e3
+#Current unit is aCi/L
+rad_all$beta<-rad_all$beta*1000
+rad_all$lbeta<-log(rad_all$beta)
+rad_cross$pb210<-rad_cross$pb210*1000
+
+##################
+#Descriptive Statistics
+play_data<-rad_cross[rad_cross$Play,]
+out_data<-rad_cross[!rad_cross$Play,]
+play_beta_data<-rad_all[rad_all$Play,]
+out_beta_data<-rad_all[!rad_all$Play,]
+write_row<-function(play_dat,out_dat,name)
+{
+  t0<-t.test((rbind(play_dat,out_dat))[[name]])
+  p0<-c(t0$estimate,t0$conf.int[1:2])
+  t1<-t.test(play_dat[[name]])
+  p1<-c(t1$estimate,t1$conf.int[1:2])
+  t2<-t.test(out_dat[[name]])
+  p2<-c(t2$estimate,t2$conf.int[1:2])
+  p3<-(t.test(play_dat[[name]],out_dat[[name]]))$p.value
+  return(as.numeric(c(p0,p1,p2,p3)))
+}
+
+write_cor_row<-function(play_dat,out_dat,name1,name2){
+  c0<-cor.test((rbind(play_dat,out_dat))[[name1]],(rbind(play_dat,out_dat))[[name2]],conf.level=0.95)
+  t<-paired.r(cor(play_dat[[name1]],play_dat[[name2]],use="complete.obs"),
+              cor(out_dat[[name1]],out_dat[[name2]],use="complete.obs"),
+           n=nrow(play_dat), n2=nrow(out_dat),twotailed=TRUE)
+  c1<-cor.test(play_dat[[name1]],play_dat[[name2]],conf.level=0.95)
+  c2<-cor.test(out_dat[[name1]],out_dat[[name2]],conf.level=0.95)
+  return(as.numeric(c(c0$estimate,c0$conf.int[1:2],c1$estimate,c1$conf.int[1:2],c2$estimate,c2$conf.int[1:2],t$p)))
+}
+
+pb_row<-write_row(play_data,out_data,"pb210")
+pb_Rn_row<-write_row(play_data,out_data,"Radon")
+pb_mass_row<-write_row(play_data,out_data,"mass")
+pb_U_row<-write_row(play_data,out_data,"Umeans")
+pb_vel_row<-write_row(play_data,out_data,"vel")
+pb_hpbl_row<-write_row(play_data,out_data,"hpbl")
+pb_cstdist_row<-write_row(play_data,out_data,"Coast_Dist")
+pb_oil_row<-write_row(play_data,out_data,"G_Oil_Prod")
+pb_gas_row<-write_row(play_data,out_data,"G_Gas_Prod")
+
+c_pb_radon_row<-write_cor_row(play_data,out_data,"pb210","Radon")
+c_pb_U_row<-write_cor_row(play_data,out_data,"pb210","Umeans")
+c_pb_mass_row<-write_cor_row(play_data,out_data,"pb210","mass")
+c_pb_vel_row<-write_cor_row(play_data,out_data,"pb210","vel")
+c_pb_hpbl_row<-write_cor_row(play_data,out_data,"pb210","hpbl")
+c_pb_cstdist_row<-write_cor_row(play_data,out_data,"pb210","Coast_Dist")
+c_pb_oil_row<-write_cor_row(play_data,out_data,"pb210","G_Oil_Prod")
+c_pb_gas_row<-write_cor_row(play_data,out_data,"pb210","G_Gas_Prod")
+
+beta_row<-write_row(play_beta_data,out_beta_data,"beta")
+beta_Rn_row<-write_row(play_beta_data,out_beta_data,"Radon")
+beta_mass_row<-write_row(play_beta_data,out_beta_data,"mass")
+beta_U_row<-write_row(play_beta_data,out_beta_data,"Umeans")
+beta_vel_row<-write_row(play_beta_data,out_beta_data,"vel")
+beta_hpbl_row<-write_row(play_beta_data,out_beta_data,"hpbl")
+beta_cstdist_row<-write_row(play_beta_data,out_beta_data,"Coast_Dist")
+beta_oil_row<-write_row(play_beta_data,out_beta_data,"G_Oil_Prod")
+beta_gas_row<-write_row(play_beta_data,out_beta_data,"G_Gas_Prod")
+
+c_beta_pb_row<-write_cor_row(play_beta_data,out_beta_data,"beta","pb210")
+c_beta_radon_row<-write_cor_row(play_beta_data,out_beta_data,"beta","Radon")
+c_beta_U_row<-write_cor_row(play_beta_data,out_beta_data,"beta","Umeans")
+c_beta_mass_row<-write_cor_row(play_beta_data,out_beta_data,"beta","mass")
+c_beta_vel_row<-write_cor_row(play_beta_data,out_beta_data,"beta","vel")
+c_beta_hpbl_row<-write_cor_row(play_beta_data,out_beta_data,"beta","hpbl")
+c_beta_cstdist_row<-write_cor_row(play_beta_data,out_beta_data,"beta","Coast_Dist")
+c_beta_oil_row<-write_cor_row(play_beta_data,out_beta_data,"beta","G_Oil_Prod")
+c_beta_gas_row<-write_cor_row(play_beta_data,out_beta_data,"beta","G_Gas_Prod")
+
+table_2<-rbind.data.frame(pb_row,pb_Rn_row,pb_mass_row,pb_U_row,pb_vel_row,pb_hpbl_row,pb_cstdist_row,
+                          pb_oil_row,pb_gas_row,
+                          c_pb_radon_row,c_pb_mass_row,c_pb_U_row,c_pb_vel_row,c_pb_hpbl_row,c_pb_cstdist_row,
+                          c_pb_oil_row,c_pb_gas_row)
+names(table_2)<-c("g_mean","gross_low","g_high","p_mean","p_low","p_high","o_mean",
+                  "o_low","o_high","sig_dif")
+row.names(table_2)<-c("Pb-210","Radon Index","PM2.5","U-238","Wind velocity","HPBL","Dist to Coast",
+                      "Gross Oil Production","Gross Gas Production",
+                      "Pb-210 & Radon","Pb-210 & PM2.5","Pb-210 & U238","Pb-210 & Wind velocity","Pb-210 & HPBL","PB-210 & Dist to Coast",
+                      "Pb-210 & Oil Prod","Pb-210 & Gas Prod"
+                      )
+
+table_3<-rbind.data.frame(beta_row,beta_Rn_row,beta_mass_row,beta_U_row,beta_vel_row,beta_hpbl_row,beta_cstdist_row,
+                          beta_oil_row,beta_gas_row,
+                          c_beta_radon_row,c_beta_mass_row,c_beta_U_row,c_beta_vel_row,c_beta_hpbl_row,c_beta_cstdist_row,
+                          c_beta_oil_row,c_beta_gas_row)
+names(table_3)<-c("g_mean","gross_low","g_high","p_mean","p_low","p_high","o_mean",
+                  "o_low","o_high","sig_dif")
+row.names(table_3)<-c("beta","Radon Index","PM2.5","U-238","Wind velocity","HPBL","Dist to Coast",
+                      "Gross Oil Production","Gross Gas Production",
+                      "beta & Radon","beta & PM2.5","beta & U238","beta & Wind velocity","beta & HPBL","beta & Dist to Coast",
+                      "beta & Oil Prod","beta & Gas Prod"
 )
-rownames(LevCD) <- names(fixef(model_oil_diag))
-LevCD$multiples <- abs(LevCD$change / LevCD$se)
-LevCD
-confint(model_oil_diag)
+library(xtable)
+xtable(table_2,digits = c(5,2,2,2,2,2,2,2,2,2,3))
+xtable(table_3,digits = c(5,2,2,2,2,2,2,2,2,2,3))
+#################
+#Models
+rad_cross[is.na(rad_cross$mass),]$mass<-mean(rad_cross$mass,na.rm=T)
+rad_cross[is.na(rad_cross$vel),]$vel<-mean(rad_cross$vel,na.rm=T)
+rad_cross$ppm<-rad_cross$pb210/rad_cross$mass
+coords <- as.matrix(rad_cross[,c("Lon","Lat")])
+col.knn <- knearneigh(coords, k=7)
+W_dist<-dnearneigh(coords,0,1500,longlat = T)
+W_dist<-nb2listw(W_dist, glist=NULL, style="W", zero.policy=NULL)
 
-#'## Gross Gas Production
-#'Gas production is the sum of monthly gas production from all wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' gross gas production is not significantly correlated with the annual Lead-210. After log-transformation, the gross
-#' gas production is still not remarkably related with log(Pb210). Due to lack of significance, there's no need
-#' to run diagnostic.
-#+ Model the correlation between gas production and Lead-210,warning=F,message=F
-model_gas_prod<-lmer(pb210~radon+Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_gas_prod,method="boot")
-anova(model_basic,model_gas_prod)
+rad_cross[is.na(rad_cross$H_Oil_Prod),]$H_Oil_Prod=0
 
-model_log_gas_prod<-lmer(lpb~radon+Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_gas_prod,method="boot")
-anova(model_log_gas_prod,model_log_basic)
+g_0<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=15),
+        data=rad_cross)
+g_m<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+vel+V_Oil_Prod+s(Lon,Lat,k=15),
+         data=rad_cross)
 
-#' ## Horizontal Oil Production
-#'Horizontal oil production is the sum of monthly oil production from all horizontal wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' horizontal oil production is weakly correlated with the annual Lead-210. After log-transformation, the
-#' horizontal oil production is not significantlyrelated with log(Pb210).
-#+ Model the correlation between horizontal oil production and Lead-210,warning=F,message=F
-model_h_oil_prod<-lmer(pb210~radon+H_Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_h_oil_prod,method="boot")
-anova(model_basic,model_h_oil_prod)
-fixed.effects(model_h_oil_prod)
+moran.test(resid(g_m),W_dist)
+moran.test(resid(g_0),W_dist)
+summary(g_m)
+anova.gam(g_m,g_0,test="F")
 
-model_log_h_oil_prod<-lmer(lpb~radon+H_Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_h_oil_prod,method="boot")
-anova(model_log_h_oil_prod,model_log_basic)
 
-#' ## Vertical Oil Production
-#'Vertical oil production is the sum of monthly oil production from all vertical wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' vertical oil production is significantly correlated with the annual Lead-210. Adding oil
-#' production influence the slope of radon and intercept remarkably. After log-transformation, the gross
-#' oil production is significantly related with log(Pb210). 
-#+ Model the correlation between vertical oil production and Lead-210,warning=F,message=F
-model_v_oil_prod<-lmer(pb210~radon+V_Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_v_oil_prod,method="boot")
-anova(model_basic,model_v_oil_prod)
-fixed.effects(model_v_oil_prod)
+cooks<-cooks.distance(g_m)
+g_m2<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod+s(Lon,Lat,k=15),
+          data=rad_cross[-which.max(cooks),])
+summary(g_m2)
 
-model_log_v_oil_prod<-lmer(lpb~radon+V_Oil_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_v_oil_prod,method="boot")
-anova(model_log_v_oil_prod,model_log_basic)
-#' A tentative diagnostic based largely on leverage is applied here to check whether this
-#' correlation is stable. Otherwise, it can be influenced by few influential measurements.
-#' Based on the qqnorm and leverage plot, we can see that the residual of this model is largely
-#' normally distributed except for some limit values. After removing the measurements with
-#' very big leverage value, the slope of gross oil production doesn't change remarkbly, only 5%
-#' of the standard deviation. The updated confidence interval after removing these measurements
-#' still doesn't cover 0, meansing this correlation is stable and significant.
-#+ Model diagonostic for vertical oil production, fig.width=16, fig.height=9, echo=T,message=F,warning=F
-g1<-ggplot(as.data.frame(resid(model_v_oil_prod)), aes(sample = resid(model_v_oil_prod)))+stat_qq() + stat_qq_line()
-g2<-ggplot(data.frame(lev=hatvalues(model_v_oil_prod),pearson=residuals(model_v_oil_prod,type="pearson")),
-           aes(x=lev,y=pearson)) +
-  geom_point() +
-  theme_bw()
-cowplot::plot_grid(g1,g2)
-levId <- which(hatvalues(model_v_oil_prod) >= .5)
-rad_all[levId,c("pb210","radon","V_Oil_Prod","YEAR","city_state")]
-model_v_oil_diag <- lmer(pb210 ~ radon + V_Oil_Prod + YEAR+ (1|city_state), data=rad_all[-c(levId),])
-LevCD <- data.frame(effect=fixef(model_v_oil_prod),
-                    change=(fixef(model_v_oil_diag) - fixef(model_v_oil_prod)),
-                    se=sqrt(diag(vcov(model_v_oil_prod)))
-)
-rownames(LevCD) <- names(fixef(model_v_oil_diag))
-LevCD$multiples <- abs(LevCD$change / LevCD$se)
-LevCD
-confint(model_v_oil_diag)
+g_ls<-gls(log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod,
+          correlation=corGaus(form=~Lon+Lat,nugget=TRUE),data=rad_cross)
+confint(g_ls)
+summary(g_ls)
 
-#' ## Horizontal Gas Production
-#'Horizontal gas production is the sum of monthly gas production from all horizontal wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' horizontal gas production is weakly correlated with the annual Lead-210. After log-transformation, the
-#' horizontal gas production is not significantlyrelated with log(Pb210).
-#+ Model the correlation between horizontal gas production and Lead-210,warning=F,message=F
-model_h_gas_prod<-lmer(pb210~radon+H_Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_h_gas_prod,method="boot")
-anova(model_basic,model_h_gas_prod)
-fixed.effects(model_h_gas_prod)
+sar_0<-lagsarlm(formula=log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel,
+                data=rad_cross,listw =  W_dist)
+sar_m<-lagsarlm(formula=log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod,
+                data=rad_cross,listw =  W_dist)
+anova.sarlm(sar_0,sar_m)
+LR.sarlm(sar_0,sar_m)
+summary(sar_m)
 
-model_log_h_gas_prod<-lmer(lpb~radon+H_Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_h_gas_prod,method="boot")
-anova(model_log_h_gas_prod,model_log_basic)
+###
+diagnosis<-function(model){
+  cooks<-cooks.distance(model)
+  temp_cooks<-cbind.data.frame(model@frame,cooks)
+  cooks<-temp_cooks%>%group_by(city_state)%>%summarise(mean_cooks=mean(cooks))
+  exclude_city<-cooks[which.max(cooks$mean_cooks),]
+  new_data<-rad_all%>%filter(city_state!=exclude_city$city_state)
+  new_model<-lmer(model@call$formula,data=new_data,REML=F)
+  new_effects<-fixed.effects(new_model)
+  effects<-fixed.effects(model)
+  ratios<-new_effects/effects
+  anova(model,test="F")
+  return(ratios)
+}
+group_boot_est<-function(model,n_variables=3,nsim=100,block=F){
+  library(progress)
+  result<-matrix(0,ncol=length(names(fixed.effects(model))),nrow=nsim)
+  clusters<-unique(model@frame$city_state)
+  pb <- progress_bar$new(total = nsim)
+  boot_data<-model@frame
+  for(i in 1:nsim){
+    temp_data<-simulate(model, newdata=boot_data[-1], re.form=NA,
+                        allow.new.levels=F)$sim_1
+    sim_data<-boot_data
+    sim_data$lbeta<-as.numeric(temp_data)
+    if(!block){
+      city_list<-clusters 
+    }else{
+      city_list<-sample(clusters,length(clusters),replace = T)
+    }
+    city_list<-as.data.frame(city_list)
+    names(city_list)<-"city_state"
+    temp_data<-left_join(city_list,sim_data,by="city_state")
+    new_model<-lmer(model@call$formula,data=temp_data,REML=F)
+    new_effects<-fixed.effects(new_model)
+    result[i,]<-new_effects
+    pb$tick()
+  }
+  result<-as.data.frame(result)
+  names(result)<-names(fixed.effects(model))
+  return(result)
+}
+group_boot_comp<-function(small_model,big_model,nsim=100,block=F)
+{
+  library(progress)
+  result<-matrix(0,ncol =2,nrow=nsim)
+  clusters<-unique(small_model@frame$city_state)
+  pb <- progress_bar$new(total = nsim)
+  boot_data<-big_model@frame
+  for(i in 1:nsim){
+    temp_data<-simulate(small_model, newdata=small_model@frame[-1],
+                        allow.new.levels=F)$sim_1
+    sim_data<-boot_data
+    sim_data$lbeta<-as.numeric(temp_data)
+    if(!block){
+      city_list<-clusters 
+    }else{
+      city_list<-sample(clusters,length(clusters),replace = T)
+    }
+    city_list<-as.data.frame(city_list)
+    names(city_list)<-"city_state"
+    temp_data<-left_join(city_list,sim_data,by="city_state")
+    new_b_model<-refit(small_model@call$formula,data=temp_data,REML=F)
+    new_c_model<-lmer(big_model@call$formula,data=temp_data,REML=F)
+    a<-anova(new_b_model,new_c_model)
+    lrt_result<-a$logLik
+    result[i,]<-lrt_result
+    pb$tick()
+  }
+  result<-as.data.frame(result)
+  names(result)<-c("Log_lk_s","Log_lk_b")
+  return(result)
+}
 
-#' ## Vertical Gas Production
-#'Vertical gas production is the sum of monthly gas production from all vertical wells within 25km away from the monitor.
-#'Based on the summary of models and test, we can see that, without log-transformation, 
-#' vertical gas production is weakly correlated with the annual Lead-210. After log-transformation, the
-#' vertical gas production is not significantly related with log(Pb210).
-#+ Model the correlation between vertical gas production and Lead-210,warning=F,message=F
-model_v_gas_prod<-lmer(pb210~radon+V_Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_v_gas_prod,method="boot")
-anova(model_basic,model_v_gas_prod)
-fixed.effects(model_v_gas_prod)
-
-model_log_v_gas_prod<-lmer(lpb~radon+V_Gas_Prod+YEAR+(1|city_state),data=rad_all,REML=T)
-confint(model_log_v_gas_prod,method="boot")
-anova(model_log_v_gas_prod,model_log_basic)
-
-#'# Conclusion
-#'
-#'Oil production especially oil production from vertical wells is significantly related
-#'with local Lead-210. Natural gas production is not significantly correlated with local
-#'local Lead-210. So, vertical oil drilling may significantly increase the local residents'
-#'exposure to radon.
-#'
-#'# Tentative interperation
-#'
-#'Vertical wells were mostly completed before financial crisis. They're much older than the 
-#'currently dorminant directional drilling. At the end of lifttime, the fraction of produced 
-#'water is always higher than the new drill. Produced water (is not pumped back to the formation)
-#'may serve as the medium for radon leakage.
-
-#'# *Questions*
-#'
-#' *Q1: Are the models and diagnostic process 
-#' valid?*
-#' 
-#' *Q2: Current models use all the data, but only 1/6 (25km case) of the RadNet monitors  
-#' are located within oil/gas field. Do I need to model based on the "contaminated" area only? *
-#' 
-#' *Q3: To control for the spatial confounder, a random intercept is assigned to each RadNet monitor
-#' . In additon, the EPA radon zone is also included. Is this sufficient, redundent or insufficient? 
-#' Or can I use this as sensitivity analysis?*
-#' 
-#' *Q4: Concerning the significance part, can we state that we need to use the drilling information
-#' to update the radon zone data?*
-#' 
-#' * Q5: The temporal confounding is only controlled for by adding the year in the model. In the context
-#' of short study period, do you think this's sufficient?*
+###############
+test_data<-rad_all%>%group_by(city_state)%>%summarise(n=length(city_state))
+test_data$beta_mass<-test_data$beta/test_data$mass
+summary(test_data$n)
+test_data<-test_data%>%filter(n>70)
+test_data<-rad_all%>%filter(city_state%in%test_data$city_state)
+output<-matrix(0,nrow=38,ncol=9)
+output<-as.data.frame(output)
+variables<-names(test_data)[c(7:36,38:45)]
+names(output)<-c("metric","slope","p_value","l_ci","u_ci","#cities","max_p","l_slope","u_slope")
+output$metric<-variables
+library(pbkrtest)
+library(doParallel)
+library(foreach)
+library(influence.ME)
+n=detectCores()
+for(j in 1:length(variables)){
+  var=variables[j]
+  #Number of variables in the larger model
+  numbers=3
+  cl<-makeCluster(n)
+  registerDoParallel(cl)
+  small_formula="lbeta~mass+vel+(1|city_state)+(1|MONTH)+(1|YEAR)"
+  m_basic<-lmer(as.formula(small_formula),data=test_data,REML=F)
+  big_formula<-paste(small_formula,"+",var)
+  m_test<-lmer(as.formula(big_formula),data=test_data,REML=F)
+  p2<-PBmodcomp(m_test,m_basic,nsim=100,cl=cl)
+  p2<-p2$test$p.value[2]
+  p1<-fixed.effects(m_test)[var]
+  ci<-confint(m_test,parm=var,method="boot",nsim=250,boot.type="perc")
+  infuence<-influence(m_test,group="city_state")
+  cooks<-cooks.distance.estex(infuence)
+  city_list<-names(cooks[cooks>0.10,])
+  p3<-length(city_list)
+  result<-matrix(0,nrow=length(city_list),ncol=numbers+2)
+  for(i in 1:length(city_list)){
+    b_model<-exclude.influence(m_basic,"city_state",city_list[i])
+    c_model<-exclude.influence(m_test,"city_state",city_list[i])
+    p<-PBmodcomp(c_model,b_model,nsim=100,cl=cl)
+    p<-p$test$p.value[2]
+    print(paste(p,city_list[i]))
+    result[i,]=c(fixef(c_model),p)
+  }
+  p4<-max(result[,numbers+2])
+  p5<-min(result[,numbers+1]/p1)
+  p6<-max(result[,numbers+1]/p1)
+  row<-c(p1,p2,ci,p3,p4,p5,p6)
+  output[j,2:9]<-row
+  stopCluster(cl)
+  print(output[j,])
+}
 
 

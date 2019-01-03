@@ -30,55 +30,158 @@ source(here::here("code","00_Template_SQL_Command.R"))
 RadNet_City_List<-read_csv(here::here("data","Processed-RadNet-Beta-citylist.csv"))
 radnet_usgs_radio<-read_csv(here::here("data","radnet_radioraster_summary.csv"))
 radnet_usgs_radio$city_state<-paste0(radnet_usgs_radio$city,",",radnet_usgs_radio$state)
+radnet<-pgGetGeom(con,"RadNet_Sp","radnet_geom")
+uwind<-stack(here::here("data","NARR","uwnd.nc"))
+uwind<-uwind[[338:469]]
+vwind<-stack(here::here("data","NARR","vwnd.nc"))
+vwind<-vwind[[338:469]]
+radnet_wind<-prepare_wind_field(radnet,uwind,vwind,key="city_state")
+
+hpbl<-stack(here::here("data","NARR","hpbl.nc"))
+hpbl<-hpbl[[338:469]]
+radnet_hpbl<-as.data.frame(raster::extract(hpbl,radnet))
+
+radnet_hpbl[,"city_state"]=as.factor(radnet@data[,"city_state"])
+radnet_hpbl<-gather(radnet_hpbl,time,hpbl,-"city_state")
+radnet_hpbl[,"Date"]<-as.Date(substr(radnet_hpbl[,"time"],2,11),format("%Y.%m.%d"))
+radnet_hpbl[,"Year"]<-year(radnet_hpbl[,"Date"])
+radnet_hpbl[,"Month"]<-month(radnet_hpbl[,"Date"])
+radnet_hpbl[,"Day"]<-as.numeric(mday(radnet_hpbl[,"Date"]))
+radnet_hpbl[radnet_hpbl$Day<15,"Month"]<- radnet_hpbl[radnet_hpbl$Day<15,"Month"]-1
+radnet_hpbl<-radnet_hpbl[!duplicated(radnet_hpbl[,c("city_state","Year","Month")]),]
+radnet_hpbl<-radnet_hpbl[,c("city_state","hpbl","Year","Month")]
+
+rhum<-stack(here::here("data","NARR","rhum.nc"))
+rhum<-rhum[[338:469]]
+radnet_rhum<-as.data.frame(raster::extract(rhum,radnet))
+
+radnet_rhum[,"city_state"]=as.factor(radnet@data[,"city_state"])
+radnet_rhum<-gather(radnet_rhum,time,rhum,-"city_state")
+radnet_rhum[,"Date"]<-as.Date(substr(radnet_rhum[,"time"],2,11),format("%Y.%m.%d"))
+radnet_rhum[,"Year"]<-year(radnet_rhum[,"Date"])
+radnet_rhum[,"Month"]<-month(radnet_rhum[,"Date"])
+radnet_rhum[,"Day"]<-as.numeric(mday(radnet_rhum[,"Date"]))
+radnet_rhum[radnet_rhum$Day<15,"Month"]<- radnet_rhum[radnet_rhum$Day<15,"Month"]-1
+radnet_rhum<-radnet_rhum[!duplicated(radnet_rhum[,c("city_state","Year","Month")]),]
+radnet_rhum<-radnet_rhum[,c("city_state","rhum","Year","Month")]
+
 for(r in c(25000,50000,75000,100000)){
-  total_gas_cmd<-"
-  SELECT sum(\"Monthly_Gas\") AS \"Prod\",COUNT(\"Monthly_Gas\") As \"Num\",\"city\",12*date_part('year',age(date_trunc('month',\"Monthly_Production_Date\"),'2001-01-01'))+date_part('month',age(date_trunc('month',\"Monthly_Production_Date\"),'2001-01-01'))AS \"m_month\",\"Type\"
-  FROM \"Gas_Production_Table\",(SELECT \"API/UWI\" AS \"ID\",\"city_state\" AS \"city\" ,\"Drill Type\" AS \"Type\",\"True Vertical Depth\" AS \"Depth\" FROM  \"Gas_Well_Headers\",\"RadNet_Sp\" WHERE ST_DistanceSphere(\"gas_well_geom\",\"radnet_geom\")<RADIUS)AS tbl
-  WHERE \"API\" = \"ID\" AND (\"Monthly_Production_Date\" BETWEEN '01/01/2001' AND '12/31/2018')
-  GROUP BY \"m_month\",\"city\",\"Type\"
-  ORDER BY \"city\""
-  cmd<-gsub(pattern="RADIUS",replacement=as.character(r),total_gas_cmd)
-  rad_gas<-dbGetQuery(con,cmd)
-  names(rad_gas)[3]<-"city_state"
-  rad_gas_prod<-spread(data=rad_gas[,c("city_state","m_month","Type","Prod")],key=Type,value=Prod)
-  names(rad_gas_prod)[3:4]<-c("H_Gas_Prod","V_Gas_Prod")
-  
-  rad_gas_num<-spread(data=rad_gas[,c("city_state","m_month","Type","Num")],key=Type,value=Num)
-  names(rad_gas_num)[3:4]<-c("H_Gas_Num","V_Gas_Num")
-  
-  rad_gas<-left_join(rad_gas_num,rad_gas_prod)
-  rad_gas[is.na(rad_gas)] <- 0
-  rad_gas$Gas_Prod<-rad_gas$H_Gas_Prod+rad_gas$V_Gas_Prod
-  rad_gas$Gas_Num<-rad_gas$H_Gas_Num+rad_gas$V_Gas_Num
-  
-  total_oil_cmd<-"
-  SELECT sum(\"Monthly_Oil\") AS \"Prod\",COUNT(\"Monthly_Oil\") As \"Num\",\"city\",12*date_part('year',age(date_trunc('month',\"Monthly_Production_Date\"),'2001-01-01'))+date_part('month',age(date_trunc('month',\"Monthly_Production_Date\"),'2001-01-01'))AS \"m_month\",\"Type\"
-  FROM \"Oil_Production_Table\",(SELECT \"API/UWI\" AS \"ID\",\"city_state\" AS \"city\" ,\"Drill Type\" AS \"Type\",\"True Vertical Depth\" AS \"Depth\" FROM  \"Oil_Well_Headers\",\"RadNet_Sp\" WHERE ST_DistanceSphere(\"oil_well_geom\",\"radnet_geom\")<RADIUS)AS tbl
-  WHERE \"API\" = \"ID\" AND (\"Monthly_Production_Date\" BETWEEN '01/01/2001' AND '12/31/2018')
-  GROUP BY \"m_month\",\"city\",\"Type\"
-  ORDER BY \"city\"
+  nuclide_cmd<-"
+  SELECT avg(\"Result\") AS \"pb210\",EXTRACT(YEAR FROM to_date(\"Date\",'DD-MON-YY')) AS \"YEAR\",\"Location\" AS \"city_state\"
+  FROM \"Nuclide_Measurement\"
+  WHERE \"Nuclides\"='Lead-210'
+  GROUP BY \"Location\",\"Nuclides\",\"YEAR\"
+  ORDER BY \"Location\",\"Nuclides\",\"YEAR\"
   "
-  cmd<-gsub(pattern="RADIUS",replacement=as.character(r),total_oil_cmd)
-  rad_oil<-dbGetQuery(con,cmd)
-  names(rad_oil)[3]<-"city_state"
-  rad_oil_prod<-spread(data=rad_oil[,c("city_state","m_month","Type","Prod")],key=Type,value=Prod)
-  names(rad_oil_prod)[3:4]<-c("H_Oil_Prod","V_Oil_Prod")
+  nuc<-dbGetQuery(con,nuclide_cmd)
+  nuc<-nuc[nuc$YEAR>2006,]
   
-  rad_oil_num<-spread(data=rad_oil[,c("city_state","m_month","Type","Num")],key=Type,value=Num)
-  names(rad_oil_num)[3:4]<-c("H_Oil_Num","V_Oil_Num")
+  city_well_cmd<-"
+  SELECT \"API/UWI\",\"Spud Date\",\"Completion Date\",\"city_state\",\"Last Prod Date\",\"Drill Type\",\"DI Basin\",ST_DistanceSphere(\"well_geom\",\"radnet_geom\") AS \"Dist\",180*ST_Azimuth(\"radnet_geom\",\"well_geom\")/pi() AS \"Dir\"
+  FROM \"Well_Headers\",\"RadNet_Sp\" 
+  WHERE ST_DistanceSphere(\"well_geom\",\"radnet_geom\")<RADIUS
+  "
+  cmd<-gsub(pattern="RADIUS",replacement=as.character(r),city_well_cmd)
+  city_well_relation<-dbGetQuery(con,cmd)
+  city_well_relation<-city_well_relation%>%filter(`Last Prod Date`>2006)
+  prod_db <- tbl(con, "Well_Production_Table")
+  prod_db<-prod_db%>%filter(API%in%city_well_relation$`API/UWI`&Prod_Year>2006&Prod_Year<2018)
+  print(Sys.time())
+  city_prod<-city_well_relation%>%
+    left_join(prod_db,by=c("API/UWI"="API"),copy=T)
+  print(Sys.time())
+  city_prod<-city_prod%>%filter(!is.na(Prod_Year))
+  city_prod[city_prod$`Drill Type`=="D",]$`Drill Type`="H"
+  city_prod<-city_prod%>%filter(!is.na(`DI Basin`))
+  city_prod$Dist<-city_prod$Dist/1000
+  city_prod_wind<-left_join(city_prod,radnet_wind,by=c("Prod_Year"="Year","Prod_Month"="Month","city_state"="city_state"))
+  city_prod_wind<-city_prod_wind%>%filter(!is.na(uwind))
+  #Selet wells with wind direction
+  range=45
+  low=city_prod_wind$Dir-range
+  up=city_prod_wind$Dir+range
   
-  rad_oil<-left_join(rad_oil_num,rad_oil_prod)
-  rad_oil[is.na(rad_oil)] <- 0
-  rad_oil$Oil_Prod<-rad_oil$H_Oil_Prod+rad_oil$V_Oil_Prod
-  rad_oil$Oil_Num<-rad_oil$H_Oil_Num+rad_oil$V_Oil_Num
+  r1l=ifelse(low<0,low+360,low)
+  r1u=ifelse(low<0,360,up)
+  r2l=ifelse(low<0,0,low)
+  r2u=up
+  
+  r3u=ifelse(up>360,r2u-360,up)
+  r3l=ifelse(up>360,0,low)
+  r4u=ifelse(up>360,360,up)
+  r4l=low
+  
+  w1<- city_prod_wind$dir<r1u&city_prod_wind$dir>r1l
+  w2<- city_prod_wind$dir<r2u&city_prod_wind$dir>r2l
+  w3<- city_prod_wind$dir<r3u&city_prod_wind$dir>r3l
+  w4<- city_prod_wind$dir<r4u&city_prod_wind$dir>r4l
+  w<-w1|w2|w3|w4
+  city_prod_wind$Within<-w
+  
+  rad_prod<-city_prod_wind%>%
+    group_by(city_state,Prod_Year,Prod_Month,`Drill Type`)%>%
+    summarise(sum_oil=sum(Monthly_Oil),
+              sum_gas=sum(Monthly_Gas),
+              sum_oil_wind=sum(Monthly_Oil[Within]),
+              sum_gas_wind=sum(Monthly_Gas[Within]),
+              num_oil=sum(Monthly_Oil>0),
+              num_gas=sum(Monthly_Gas>0),
+              num_oil_wind=sum(Monthly_Oil[Within]>0),
+              num_gas_wind=sum(Monthly_Gas[Within]>0),
+              basin=names(which.max(table(`DI Basin`))),
+              dist=mean(Dist,na.rm=T),
+              dist_wind=mean(Dist[Within],na.rm=T),
+              first_order_oil_prod=sum(Monthly_Oil/Dist),
+              first_order_oil_prod_wind=sum(Monthly_Oil[Within]/Dist[Within]),
+              first_order_gas_prod=sum(Monthly_Gas/Dist),
+              first_order_gas_prod_wind=sum(Monthly_Gas[Within]/Dist[Within]),
+              second_order_oil_prod=sum(Monthly_Oil/Dist^2),
+              second_order_oil_prod_wind=sum(Monthly_Oil[Within]/Dist[Within]^2),
+              second_order_gas_prod=sum(Monthly_Gas/Dist^2),
+              second_order_gas_prod_wind=sum(Monthly_Gas[Within]/Dist[Within]^2),
+              first_density=sum(1/Dist),
+              first_density_wind=sum(1/Dist[Within]),
+              second_density=sum(1/Dist^2),
+              second_density_wind=sum(1/Dist[Within]^2)
+    )
+  
+  oil_prod<-production_reshape(rad_prod,"sum_oil","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Oil_Prod")
+  oil_fst_prod<-production_reshape(rad_prod,"first_order_oil_prod","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Fst_Oil_Prod")
+  oil_snd_prod<-production_reshape(rad_prod,"second_order_oil_prod","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Snd_Oil_Prod")
+  gas_prod<-production_reshape(rad_prod,"sum_gas","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Gas_Prod")
+  gas_fst_prod<-production_reshape(rad_prod,"first_order_gas_prod","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Fst_Gas_Prod")
+  gas_snd_prod<-production_reshape(rad_prod,"second_order_gas_prod","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Snd_Gas_Prod")
+  
+  oil_prod_wind<-production_reshape(rad_prod,"sum_oil_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Oil_Prod_wind")
+  oil_fst_prod_wind<-production_reshape(rad_prod,"first_order_oil_prod_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Fst_Oil_Prod_Wind")
+  oil_snd_prod_wind<-production_reshape(rad_prod,"second_order_oil_prod_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Snd_Oil_Prod_Wind")
+  gas_prod_wind<-production_reshape(rad_prod,"sum_gas_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Gas_Prod_Wind")
+  gas_fst_prod_wind<-production_reshape(rad_prod,"first_order_gas_prod_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Fst_Gas_Prod_Wind")
+  gas_snd_prod_wind<-production_reshape(rad_prod,"second_order_gas_prod_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Snd_Gas_Prod_Wind")
+  
+  num_oil<-production_reshape(rad_prod,"num_oil","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Oil_Num")
+  num_oil_wind<-production_reshape(rad_prod,"num_oil_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Oil_Num_Wind")
+  num_gas<-production_reshape(rad_prod,"num_gas","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Gas_Num")
+  num_gas_wind<-production_reshape(rad_prod,"num_gas_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Gas_Num_Wind")
+  density_fst<-production_reshape(rad_prod,"first_density","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Density_Fst")
+  density_fst_wind<-production_reshape(rad_prod,"first_density_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Density_Fst_Wind")
+  density_snd<-production_reshape(rad_prod,"second_density","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Density_Snd")
+  density_snd_wind<-production_reshape(rad_prod,"second_density_wind","Drill Type",c("city_state","Prod_Year","Prod_Month","basin"),"Density_Snd_Wind")
+  
+  dist<-spread(rad_prod[,c("city_state","Prod_Year","Prod_Month","Drill Type","dist","basin")],key=`Drill Type`,value = "dist")
+  names(dist)[5:6]<-paste0(names(dist)[5:6],"_Dist")
+  names(dist)[2]<-"YEAR"
+  names(dist)[3]<-"MONTH"
+  
   
   radon_cmd<-"
-  SELECT \"citystate\",\"radon\"
-  FROM \"Radon_Zones\",(SELECT \"city_state\" AS \"citystate\",\"STUSPS\" AS \"state_sn\",\"COUNTY_NAME\" AS \"county_name\" FROM \"RadNet_Sp\",\"us_state\",\"us_county\" WHERE ST_INTERSECTS(\"radnet_geom\",\"state_geom\") AND ST_INTERSECTS(\"radnet_geom\",\"county_geom\"))AS tb1
-  WHERE \"state\"=\"state_sn\" AND \"county\"=\"county_name\"
+    select \"city_state\",\"RI\"
+  from \"RadNet_Sp\",\"US_Radon_Potential\"
+  where ST_Contains(\"radon_potential_geom\",\"radnet_geom\")
   "
   rad_radon<-dbGetQuery(con,radon_cmd)
   names(rad_radon)[1]<-"city_state"
+  names(rad_radon)[2]<-"Radon"
   
   total_beta_cmd<-"
   SELECT avg(result_amount) AS beta,12*date_part('year',age(date_trunc('month',\"collect_end\"),'2001-01-01'))+date_part('month',age(date_trunc('month',\"collect_end\"),'2001-01-01'))AS \"m_month\",EXTRACT(YEAR FROM \"collect_end\" ) AS \"YEAR\",EXTRACT(MONTH FROM \"collect_end\" ) AS \"MONTH\",\"city_state\"
@@ -87,16 +190,6 @@ for(r in c(25000,50000,75000,100000)){
   "
   rad_beta<-dbGetQuery(con,total_beta_cmd)
   rad_beta<-rad_beta[rad_beta$m_month>0,]
-  
-  nuclide_cmd<-"
-  SELECT avg(\"Result\"),EXTRACT(YEAR FROM to_date(\"Date\",'DD-MON-YY')) AS \"YEAR\",\"Location\",\"Nuclides\"
-  FROM \"Nuclide_Measurement\"
-  GROUP BY \"YEAR\",\"Location\",\"Nuclides\"
-  ORDER BY \"Location\",\"Nuclides\",\"YEAR\"
-  "
-  nuc<-dbGetQuery(con,nuclide_cmd)
-  names(nuc)[2]<-"year"
-  nuc<-spread(data=nuc,key=Nuclides,value = avg)
   
   pm_mass_cmd<-"
   SELECT avg(\"pm_mass\") AS \"mass\",12*date_part('year',age(date_trunc('month',\"Date Local\"),'2001-01-01'))+date_part('month',age(date_trunc('month',\"Date Local\"),'2001-01-01'))AS \"m_month\",\"city\"
@@ -122,155 +215,54 @@ for(r in c(25000,50000,75000,100000)){
   names(rad_pm_spec)<-gsub(" ","_",names(rad_pm_spec))
   
   radnet_basin_cmd<-"
-  SELECT \"city_state\",\"name\" AS \"basin_name\"
+  SELECT \"city_state\",\"name\" AS \"basin_region\"
   FROM \"RadNet_Sp\", \"us_basin\"
-  WHERE ST_Intersects(\"radnet_geom\",\"basin_geom\")
+  WHERE ST_Intersects(\"radnet_geom\",ST_Buffer(\"basin_geom\",0.2))
   ORDER BY \"city_state\"
   "
-  
-  gas_construction_cmd<-"
-    SELECT \"API/UWI\",\"Spud Date\",\"Completion Date\",\"city_state\",\"Last Prod Date\",\"Drill Type\"
-  FROM \"Gas_Well_Headers\",\"RadNet_Sp\" 
-  WHERE ST_DistanceSphere(\"gas_well_geom\",\"radnet_geom\")<RADIUS
-  ORDER BY \"Spud Date\"
-  "
-  cmd<-gsub(pattern = "RADIUS",as.character(r),gas_construction_cmd)
-  gas_construction_data<-dbGetQuery(con,cmd)
-  gas_construction_data<-gas_construction_data[!is.na(gas_construction_data$`Spud Date`)|!is.na(gas_construction_data$`Completion Date`),]
-  gas_construction_data<-gas_construction_data[gas_construction_data$`Completion Date`>gas_construction_data$`Spud Date`,]
-  gas_construction_data$spud_month<-interval(as.Date("2001-01-01"),gas_construction_data$`Spud Date`)
-  gas_construction_data$spud_month<-gas_construction_data$spud_month%/%months(1)
-  gas_construction_data$comp_month<-interval(as.Date("2001-01-01"),gas_construction_data$`Completion Date`)
-  gas_construction_data$comp_month<-gas_construction_data$comp_month%/%months(1)
-  
-  gas_construction_summary<-expand.grid(RadNet_City_List$city_state,seq(from=1,to=203))
-  names(gas_construction_summary)<-c("city_state","m_month")
-  gas_construction_summary<-left_join(gas_construction_summary,gas_construction_data)
-  names(gas_construction_summary)[7]<-"Drill_Type"
-  gas_construction_summary<-gas_construction_summary%>%
-    group_by(city_state,m_month)%>%
-    dplyr::summarise(
-              n_gas_spud=sum(spud_month==m_month),
-              n_gas_cons=sum(spud_month<m_month&comp_month>m_month),
-              n_gas_wells=sum(comp_month<m_month),
-              n_h_gas_spud=sum(spud_month==m_month&Drill_Type=="H"),
-              n_h_gas_cons=sum(spud_month<m_month&comp_month>m_month&Drill_Type=="H"),
-              n_h_gas_wells=sum(comp_month<m_month&Drill_Type=="H"),
-              n_v_gas_spud=sum(spud_month==m_month&Drill_Type=="V"),
-              n_v_gas_cons=sum(spud_month<m_month&comp_month>m_month&Drill_Type=="V"),
-              n_v_gas_wells=sum(comp_month<m_month&Drill_Type=="V"))
-  gas_construction_summary[is.na(gas_construction_summary)] <- 0
-  
-  oil_construction_cmd<-"
-  SELECT \"API/UWI\",\"Spud Date\",\"Completion Date\",\"city_state\",\"Last Prod Date\",\"Drill Type\"
-  FROM \"Oil_Well_Headers\",\"RadNet_Sp\" 
-  WHERE ST_DistanceSphere(\"oil_well_geom\",\"radnet_geom\")<RADIUS
-  ORDER BY \"Spud Date\"
-  "
-  cmd<-gsub(pattern = "RADIUS",as.character(r),oil_construction_cmd)
-  oil_construction_data<-dbGetQuery(con,cmd)
-  oil_construction_data<-oil_construction_data[!is.na(oil_construction_data$`Spud Date`)|!is.na(oil_construction_data$`Completion Date`),]
-  oil_construction_data<-oil_construction_data[oil_construction_data$`Completion Date`>oil_construction_data$`Spud Date`,]
-  oil_construction_data$spud_month<-interval(as.Date("2001-01-01"),oil_construction_data$`Spud Date`)
-  oil_construction_data$spud_month<-oil_construction_data$spud_month%/%months(1)
-  oil_construction_data$comp_month<-interval(as.Date("2001-01-01"),oil_construction_data$`Completion Date`)
-  oil_construction_data$comp_month<-oil_construction_data$comp_month%/%months(1)
-  
-  oil_construction_summary<-expand.grid(RadNet_City_List$city_state,seq(from=1,to=203))
-  names(oil_construction_summary)<-c("city_state","m_month")
-  oil_construction_summary<-left_join(oil_construction_summary,oil_construction_data)
-  names(oil_construction_summary)[7]<-"Drill_Type"
-  oil_construction_summary<-oil_construction_summary%>%
-    group_by(city_state,m_month)%>%
-    dplyr::summarise(
-      n_oil_spud=sum(spud_month==m_month),
-      n_oil_cons=sum(spud_month<m_month&comp_month>m_month),
-      n_oil_wells=sum(comp_month<m_month),
-      n_h_oil_spud=sum(spud_month==m_month&Drill_Type=="H"),
-      n_h_oil_cons=sum(spud_month<m_month&comp_month>m_month&Drill_Type=="H"),
-      n_h_oil_wells=sum(comp_month<m_month&Drill_Type=="H"),
-      n_v_oil_spud=sum(spud_month==m_month&Drill_Type=="V"),
-      n_v_oil_cons=sum(spud_month<m_month&comp_month>m_month&Drill_Type=="V"),
-      n_v_oil_wells=sum(comp_month<m_month&Drill_Type=="V"))
-  oil_construction_summary[is.na(oil_construction_summary)] <- 0
   radnet_basin_table<-dbGetQuery(con,radnet_basin_cmd)
-  rad_qs<-left_join(rad_beta,rad_gas,by=c("m_month","city_state"))
-  rad_qs<-left_join(rad_qs,rad_oil,by=c("m_month","city_state"))
-  rad_qs<-left_join(rad_qs,rad_radon)
-  rad_qs$radon<-as.factor(rad_qs$radon)
-  rad_qs[is.na(rad_qs$Gas_Prod),]$Gas_Prod<-0
-  rad_qs[is.na(rad_qs$Gas_Num),]$Gas_Num<-0
-  rad_qs[is.na(rad_qs$Oil_Prod),]$Oil_Prod<-0
-  rad_qs[is.na(rad_qs$Oil_Num),]$Oil_Num<-0
-  rad_qs[is.na(rad_qs$H_Gas_Prod),]$H_Gas_Prod<-0
-  rad_qs[is.na(rad_qs$H_Gas_Num),]$H_Gas_Num<-0
-  rad_qs[is.na(rad_qs$H_Oil_Prod),]$H_Oil_Prod<-0
-  rad_qs[is.na(rad_qs$H_Oil_Num),]$H_Oil_Num<-0
-  rad_qs[is.na(rad_qs$V_Gas_Prod),]$V_Gas_Prod<-0
-  rad_qs[is.na(rad_qs$V_Gas_Num),]$V_Gas_Num<-0
-  rad_qs[is.na(rad_qs$V_Oil_Prod),]$V_Oil_Prod<-0
-  rad_qs[is.na(rad_qs$V_Oil_Num),]$V_Oil_Num<-0
-  address<-strsplit(rad_qs$city_state,",")
-  address<-do.call(rbind,address)
-  state<-address[,2]
-  rad_qs$state<-state
-  rad_qs$state<-as.factor(rad_qs$state)
-  rad_qs$city_state<-as.factor(rad_qs$city_state)
   
-  rad_qs<-left_join(rad_qs,nuc,by=c("YEAR"="year","city_state"="Location"))
-  rad_qs<-left_join(rad_qs,radnet_usgs_radio)
-  rad_qs<-left_join(rad_qs,rad_pm_mass)
-  rad_qs<-left_join(rad_qs,rad_pm_spec)
-  rad_qs<-left_join(rad_qs,oil_construction_summary)
-  rad_qs<-left_join(rad_qs,gas_construction_summary)
-  rad_qs[rad_qs$city_state=="MIAMI,FL",]$radon=3
-  rad_qs<-left_join(rad_qs,radnet_basin_table)
-  rad_qs[rad_qs$city_state=="DALLAS,TX",]$basin_name="FORT WORTH"
-  names(rad_qs)<-gsub("-","_",names(rad_qs))
-  rad_qs$city_state<-as.factor(rad_qs$city_state)
-  rad_qs$Date<-as.Date(paste0(rad_qs$YEAR,"-",rad_qs$MONTH,"-01"))
-  rad_qs$basin_name<-as.factor(rad_qs$basin_name)
-  rad_qs<-rad_qs[rad_qs$YEAR<2018,]
-  write.csv(rad_qs,file=here::here("data",paste0("beta_gas_oil_",r/1000,".csv")),na="")
-  save(rad_qs,file = here::here("data",paste0("beta_gas_oil_",r/1000,".RData")))
-  summary_result<-rad_qs%>%
-    group_by(city_state)%>%
-    summarise(min_gas_num=min(Gas_Num,na.rm = T),
-              max_gas_num=max(Gas_Num,na.rm = T),
-              min_gas_prod=min(Gas_Prod,na.rm=T),
-              max_gas_prod=max(Gas_Prod,na.rm=T),
-              min_gas_h_prod=min(H_Gas_Prod,na.rm=T),
-              max_gas_h_prod=max(H_Gas_Prod,na.rm=T),
-              min_gas_v_prod=min(V_Gas_Prod,na.rm=T),
-              max_gas_v_prod=max(V_Gas_Prod,na.rm=T),
-              min_gas_h_num=min(H_Gas_Num,na.rm = T),
-              max_gas_h_num=max(H_Gas_Num,na.rm = T),
-              min_gas_v_num=min(V_Gas_Num,na.rm = T),
-              max_gas_v_num=max(V_Gas_Num,na.rm = T),
-              min_oil_num=min(Oil_Num,na.rm = T),
-              max_oil_num=max(Oil_Num,na.rm = T),
-              min_oil_prod=min(Oil_Prod,na.rm=T),
-              max_oil_prod=max(Oil_Prod,na.rm=T),
-              min_oil_h_prod=min(H_Oil_Prod,na.rm=T),
-              max_oil_h_prod=max(H_Oil_Prod,na.rm=T),
-              min_oil_v_prod=min(V_Oil_Prod,na.rm=T),
-              max_oil_v_prod=max(V_Oil_Prod,na.rm=T),
-              min_oil_h_num=min(H_Oil_Num,na.rm = T),
-              max_oil_h_num=max(H_Oil_Num,na.rm = T),
-              min_oil_v_num=min(V_Oil_Num,na.rm = T),
-              max_oil_v_num=max(V_Oil_Num,na.rm = T),
-              min_num=min(Oil_Num,na.rm = T),
-              max_num=max(Oil_Num,na.rm = T),
-              mean_beta=mean(beta,na.rm=T),
-              n_lead_210=length(Lead_210[!is.na(Lead_210)]),
-              lead_range=paste(range(Date[!is.na(Lead_210)]),collapse = "~"),
-              n_beta=length(beta),
-              beta_range=paste(range(Date[!is.na(beta)]),collapse = "~"),
-              gas_range=paste(range(Date[Gas_Num>0]),collapse = "~"),
-              oil_range=paste(range(Date[Gas_Num>0]),collapse = "~")
-    )
-  is.na(summary_result)<-sapply(summary_result, is.infinite)
-  write.csv(summary_result,file=here::here("data",paste0("summary",r/1000,".csv")))
+  beta_wind<-left_join(rad_beta,radnet_wind,by=c("YEAR"="Year","MONTH"="Month","city_state"="city_state"))
+  beta_wind<-beta_wind%>%filter(!is.na(uwind))
+  beta_wind_hpbl<-left_join(beta_wind,radnet_hpbl,by=c("YEAR"="Year","MONTH"="Month","city_state"="city_state"))
+  
+  coast_dist_cmd<-"
+  SELECT \"city_state\",min(ST_Distance(\"radnet_geom\",ST_Transform(\"coast_geom\",4326))) AS \"Coast_Dist\"
+  FROM \"RadNet_Sp\",\"us_medium_shoreline\"
+  GROUP BY \"city_state\"
+  "
+  radnet_coast_dist<-dbGetQuery(con,coast_dist_cmd)
+  
+  radnet_coords<-cbind.data.frame(radnet$city_state,coordinates(radnet))
+  names(radnet_coords)<-c("city_state","Lon","Lat")
+  
+  
+  rad_beta<-rad_beta%>%filter(YEAR>2006&YEAR<2018)
+  rad_all<-left_join(rad_beta,gas_prod)
+  rad_all<-left_join(rad_all,gas_prod_wind)
+  rad_all<-left_join(rad_all,gas_fst_prod)
+  rad_all<-left_join(rad_all,oil_prod)
+  rad_all<-left_join(rad_all,oil_prod_wind)
+  rad_all<-left_join(rad_all,oil_fst_prod)
+  rad_all<-left_join(rad_all,num_gas)
+  rad_all<-left_join(rad_all,num_gas_wind)
+  rad_all<-left_join(rad_all,num_oil)
+  rad_all<-left_join(rad_all,num_oil_wind)
+  rad_all[is.na(rad_all)]<-0
+  rad_all<-left_join(rad_all,nuc)
+  rad_all<-left_join(rad_all,density_fst)
+  rad_all<-left_join(rad_all,density_fst_wind)
+  rad_all<-left_join(rad_all,dist)
+  rad_all<-left_join(rad_all,rad_pm_mass)
+  rad_all<-left_join(rad_all,rad_pm_spec)
+  rad_all<-left_join(rad_all,rad_radon)
+  rad_all<-left_join(rad_all,radnet_basin_table)
+  rad_all<-left_join(rad_all,radnet_usgs_radio)
+  rad_all<-left_join(rad_all,beta_wind_hpbl)
+  rad_all<-left_join(rad_all,radnet_coast_dist)
+  rad_all<-left_join(rad_all,radnet_coords)
+  
+  save(rad_all,file = here::here("data",paste0("beta_gas_oil_avg_wind_",r/1000,".RData")))
 }
 
 

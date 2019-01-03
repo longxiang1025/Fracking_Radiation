@@ -18,6 +18,7 @@ con <- dbConnect(drv, dbname = "Fracking_Data",
                  user = "postgres", password = pw)
 rm(pw) # removes the password
 
+
 #create the table of radnet monitor from the city_list data
 RadNet_City_List<-read_csv(here::here("data","Processed-RadNet-Beta-citylist.csv"))
 coordinates(RadNet_City_List)<-~lon+lat
@@ -38,36 +39,23 @@ dbWriteTable(con, "radnet_measurement_table",
              value = rad, append = TRUE, row.names = FALSE)
 
 #create the table of gas_well_header from the active_wells data
-load(here::here("data","All_Gas_Wells_Active_After_2001.RData"))
-pgInsert(con,name="Gas_Well_Headers",data.obj=header_list)
+load(here::here("data","All_Wells.RData"))
+pgInsert(con,name="Well_Headers",data.obj=header_list,geom="well_geom")
 #create the table of  production to store all monthlty gas production data
-load(here::here("data","All_Gas_Wells_Active_After_2001_Production_Series.RData"))
+load(here::here("data","All_Production_Series.RData"))
 production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)
-production_data<-production_data%>%
-  group_by(production_data$'API/UWI',production_data$'Monthly Production Date')%>%
-  summarise(Monthly_Gas=sum(production_data$'Monthly Gas',na.rm=T),
-            Monthly_Oil=sum(production_data$'Monthly Oil',na.rm=T),
-            Monthly_Water=sum(production_data$'Monthly Water',na.rm=T)
-  )
-names(production_data)<-c("API/UWI","Monthly_Production_Date","Monthly_Gas","Monthly_Oil","Monthly_Water")
-dbWriteTable(con, "Gas_Production_Table", 
-             value = production_data, append = TRUE, row.names = FALSE)
-
-#create the table of oil_well_header from the active_wells data
-load(here::here("data","All_Oil_Wells_Active_After_2001.RData"))
-pgInsert(con,name="Oil_Well_Headers",data.obj=header_list,geom = "oil_gas_geom")
-#create the table of  production to store all monthlty oil production data
-load(here::here("data","All_Oil_Wells_Active_After_2001_Production_Series.RData"))
-production_data<-filter(production_data,production_data$`API/UWI`%in%header_list$`API/UWI`)
-production_data<-production_data%>%
-  group_by(production_data$'API/UWI',production_data$'Monthly Production Date')%>%
-  summarise(Monthly_Gas=sum(production_data$'Monthly Gas',na.rm=T),
-            Monthly_Oil=sum(production_data$'Monthly Oil',na.rm=T),
-            Monthly_Water=sum(production_data$'Monthly Water',na.rm=T)
-            )
-names(production_data)<-c("API/UWI","Monthly_Production_Date","Monthly_Gas","Monthly_Oil","Monthly_Water")
-dbWriteTable(con, "Oil_Production_Table", 
-             value = production_data, append = TRUE, row.names = FALSE)
+names(production_data)<-c("API","Monthly_Production_Date", "Monthly_Gas", "Monthly_Oil","Monthly_Water","Production Type","Production Status")
+production_data<-production_data %>% replace(., is.na(.), 0)
+production_data[,c("Monthly_Gas", "Monthly_Oil","Monthly_Water")]<-production_data[,c("Monthly_Gas", "Monthly_Oil","Monthly_Water")]%>%replace(.,(.)<0,0)
+production_data$Prod_Year<-lubridate::year(production_data$Monthly_Production_Date)
+production_data$Prod_Month<-lubridate::month(production_data$Monthly_Production_Date)
+indx<-1:nrow(production_data)
+grps<- as.integer(indx/10000000)
+grps<-cbind.data.frame(indx,grps)
+for(g in 0:max(grps$grps)){
+  dbWriteTable(con, "Well_Production_Table", 
+               value = production_data[grps[grps$grps==g,]$indx,],row.names = FALSE,append=T) 
+}
 
 #create the table of pm monitors
 load(here::here("data","PM_MONITOR_ID_CONVERSION_TABLE.RData"))
@@ -98,7 +86,7 @@ dbWriteTable(con,"Gamma_Measurement",value =gamma_data,append=T,rownames=F)
 
 #create the table of nuclide measurement
 load(here::here("data","nuclide_data.RData"))
-nuc_data$Location<-gsub("[[:blank:]]", "",nuc_data$Location)
+nuc_data$Location<-gsub(", ", ",",nuc_data$Location)
 nuc_data<-nuc_data[nuc_data$Location%in%unique(RadNet_City_List$city_state),]
 names(nuc_data)<-c("Location","Medium","Date","Procedure_Name","Nuclides","Result","Uncertainty","MDC","Unit")
 nuc_data<-distinct(.data=nuc_data,Location,Nuclides,Date,.keep_all=T)
@@ -139,3 +127,12 @@ rad_u<-raster(here::here("data","USGS_Radiometric","NAMrad_U1.tif"))
 rad_stack<-stack(rad_k,rad_th,rad_u)
 pgSRID(con,CRS(proj4string(rad_data)),create.srid = T, new.srid = 880001)
 pgWriteRast(con, "USGS_RadioRaster",rad_data)
+
+
+uwind<-stack(here::here("data","NARR","uwnd.nc"))
+uwind<-uwind[[338:469]]
+vwind<-stack(here::here("data","NARR","vwnd.nc"))
+vwind<-vwind[[338:469]]
+pgSRID(con,CRS(proj4string(uwind)),create.srid = T,new.srid = 880002)
+pgWriteRast(con,"UWind",uwind)
+pgWriteRast(con,"VWind",vwind)

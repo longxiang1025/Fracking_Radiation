@@ -26,9 +26,11 @@ study_period<-interval(ymd("2002-01-01"),ymd("2017-12-31"))
 prod_period<-interval(ymd("2002-01-01"),ymd("2018-09-10"))
 prjstring<-"+proj=aea +lat_1=20 +lat_2=60 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=WGS84 +units=m +no_defs "
 geoprjstring<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-header_files<-list.files(here::here("data","oil_production_headers"),full.names = T)
+header_oil_files<-list.files(here::here("data","oil_production_headers"),full.names = T)
+header_gas_files<-list.files(here::here("data","gas_production_headers"),full.names = T)
+header_files<-c(header_gas_files,header_oil_files)
 header_list<-list()
-header_names<-c( "API/UWI","Reservoir","Drill Type","First Prod Date","Last Prod Date","Completion Date","Spud Date","Surface Latitude (WGS84)","Surface Longitude (WGS84)","Measured Depth (TD)","True Vertical Depth")
+header_names<-c( "API/UWI","Reservoir","Production Type","Drill Type","First Prod Date","Last Prod Date","Completion Date","Spud Date","Surface Latitude (WGS84)","Surface Longitude (WGS84)","Measured Depth (TD)","True Vertical Depth")
 for(i in 1:length(header_files)){
   header<-read_csv((header_files[i]))
   header<-dplyr::filter(header,header$'Drill Type'=="V"|header$`Drill Type`=="H")
@@ -44,20 +46,24 @@ for(i in 1:length(header_files)){
   #print(paste(i,nrow(header)))
 }
 header_list<-do.call(rbind,header_list)
-names(header_list)[8:9]<-c("Latitude","Longitude")
+names(header_list)[9:10]<-c("Latitude","Longitude")
 header_list<-header_list[!is.na(header_list$`API/UWI`),]
 header_list<-header_list[!header_list$`API/UWI`=="0",]
 header_list<-distinct(header_list,header_list$`API/UWI`,.keep_all=T)
+header_list<-filter(header_list,header_list$`Production Type`%in%c("CBM","GAS","OIL","OIL (CYCLIC STEAM)","O&G"))
+header_list[header_list$`Production Type`=="OIL (CYCLIC STEAM)",]$`Production Type`<-"OIL"
+header_list[header_list$`Production Type`=="O&G",]$`Production Type`<-"CBM"
+header_list$`Production Type`=as.factor(header_list$`Production Type`)
 coordinates(header_list)<-~Longitude+Latitude
 proj4string(header_list)<-geoprjstring
-save(header_list,file=here::here("data","All_Oil_Wells_Active_After_2001.RData"))
+save(header_list,file=here::here("data","All_Wells_Active_After_2001.RData"))
 #+Plot the active production activity in the lower 48 states (Data from drillinginfo.com) ,echo=F,message=F,cache=T,fig.width=15,fig.height=9
 load(here::here("data","Basic_Geodata/Boundaries.RData"))
 plot(bound)
 plot(header_list,add=T)
-title("Gas Production in the lower 48 states")
 #+ load all production time series csv file and clean the data based on header list, message=FALSE,warning=F,echo=F, cache = T
-production_files<-list.files(here::here("data","gas_production_time_series"),full.names = T)
+production_gas_files<-list.files(here::here("data","gas_production_time_series"),full.names = T)
+production_oil_files<-list.files(here::here("data","oil_production_time_series"),full.names = T)
 production_list<-list()
 production_names<-c("API/UWI","Monthly Production Date", "Monthly Gas","Monthly Oil","Monthly Water")
 for(i in 1:length(production_files)){
@@ -74,8 +80,8 @@ for(i in 1:length(production_files)){
   print(i)
 }
 production_data<-bind_rows(production_list)
-production_data<-do.call(rbind,production_list)
-save(production_data,file=here::here("data","All_Gas_Wells_Active_After_2001_Production_Series.RData"))
+#production_data<-do.call(rbind,production_list)
+save(production_data,file=here::here("data","All_Wells_Active_After_2001_Production_Series.RData"))
 #+ load all RadNet Data, message=FALSE,warning=F,echo=F, cache = T
 rad<-read_csv(("C:/Users/lol087/Dropbox (Personal)/BetaExplore/data/Processed-RadNet-Beta-byMeas.csv")) %>% 
   mutate(month = lubridate::month(collect_start),

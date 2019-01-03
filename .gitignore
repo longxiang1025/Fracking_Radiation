@@ -12,3 +12,4 @@ data/
 .Ruserdata
 
 *_cache
+packrat/lib*/

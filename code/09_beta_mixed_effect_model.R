@@ -8,14 +8,12 @@
 #'       fig_caption: yes
 #' ---
 #' #Introduction
-#' The primary goal of this study is to explore the correlation between monthly mean $\beta$
-#' and the monthly production of natural gas and oil within 25km of the RadNet monitor.
 #+ Load libraries and data, echo=F, message=F
 library(dplyr)
 library(lme4)
 library(nlme)
 library(ggplot2)
-load(here::here("data","beta_gas_oil_25.RData"))
+library(mgcv)
 #' # Background
 #' 
 #' * $\beta$ level can also be used as a proxy to particulate radioactivity in Maggie's NAS paper.
@@ -64,87 +62,81 @@ load(here::here("data","beta_gas_oil_25.RData"))
 #' other information. 
 #' 
 #+ Data preparation, echo=F, message=F, warning=F
-rad_qs_zones<-rad_qs[rad_qs$YEAR>2010,]
-rad_qs_zones<-rad_qs_zones[!is.na(rad_qs_zones$mass),]
-rad_qs_zones$radon<-as.numeric(as.character(rad_qs_zones$radon))
+rad_all<-rad_all[rad_all$YEAR>2006,]
+rad_all$radon<-as.numeric(as.character(rad_all$radon))
 
-summary_result<-rad_qs_zones%>%
-  group_by(city_state)%>%
-  summarise(min_gas_num=min(Gas_Num,na.rm = T),
-            max_gas_num=max(Gas_Num,na.rm = T),
-            min_gas_prod=min(Gas_Prod,na.rm=T),
-            max_gas_prod=max(Gas_Prod,na.rm=T),
-            min_gas_h_prod=min(H_Gas_Prod,na.rm=T),
-            max_gas_h_prod=max(H_Gas_Prod,na.rm=T),
-            min_gas_v_prod=min(V_Gas_Prod,na.rm=T),
-            max_gas_v_prod=max(V_Gas_Prod,na.rm=T),
-            min_gas_h_num=min(H_Gas_Num,na.rm = T),
-            max_gas_h_num=max(H_Gas_Num,na.rm = T),
-            min_gas_v_num=min(V_Gas_Num,na.rm = T),
-            max_gas_v_num=max(V_Gas_Num,na.rm = T),
-            min_oil_num=min(Oil_Num,na.rm = T),
-            max_oil_num=max(Oil_Num,na.rm = T),
-            min_oil_prod=min(Oil_Prod,na.rm=T),
-            max_oil_prod=max(Oil_Prod,na.rm=T),
-            min_oil_h_prod=min(H_Oil_Prod,na.rm=T),
-            max_oil_h_prod=max(H_Oil_Prod,na.rm=T),
-            min_oil_v_prod=min(V_Oil_Prod,na.rm=T),
-            max_oil_v_prod=max(V_Oil_Prod,na.rm=T),
-            min_oil_h_num=min(H_Oil_Num,na.rm = T),
-            max_oil_h_num=max(H_Oil_Num,na.rm = T),
-            min_oil_v_num=min(V_Oil_Num,na.rm = T),
-            max_oil_v_num=max(V_Oil_Num,na.rm = T),
-            min_num=min(Oil_Num,na.rm = T),
-            max_num=max(Oil_Num,na.rm = T),
-            mean_beta=mean(beta,na.rm=T),
-            n_lead_210=length(Lead_210[!is.na(Lead_210)]),
-            lead_range=paste(range(Date[!is.na(Lead_210)]),collapse = "~"),
-            n_beta=length(beta),
-            beta_range=paste(range(Date[!is.na(beta)]),collapse = "~"),
-            gas_range=paste(range(Date[Gas_Num>0]),collapse = "~"),
-            oil_range=paste(range(Date[Gas_Num>0]),collapse = "~")
-  )
 
 #+ Transform the variables, echo=F, message=F, warning=F
-rad_qs_zones$log_beta<-log(rad_qs_zones$beta)
-rad_qs_zones$btpm<-rad_qs_zones$beta/rad_qs_zones$mass
-rad_qs_zones$logbtpm<-rad_qs_zones$log_beta/rad_qs_zones$mass
-rad_qs_zones$radon<-as.numeric(as.character(rad_qs_zones$radon))
-rad_qs_zones$gas_field<-rad_qs_zones$city_state%in%unique(summary_result[summary_result$max_gas_prod>0,]$city_state)
-rad_qs_zones$oil_field<-rad_qs_zones$city_state%in%unique(summary_result[summary_result$max_oil_prod>0,]$city_state)
+rad_all$log_beta<-log(rad_all$beta)
+rad_all$btpm<-rad_all$beta/rad_all$mass
+rad_all$logbtpm<-rad_all$log_beta/rad_all$mass
+rad_all$radon<-as.numeric(as.character(rad_all$radon))
+
+summary_result<-rad_all%>%
+  group_by(city_state)%>%
+  summarise(
+    min_gas_prod=min(G_Gas_Prod,na.rm=T),
+    max_gas_prod=max(G_Gas_Prod,na.rm=T),
+    min_gas_h_prod=min(H_Gas_Prod,na.rm=T),
+    max_gas_h_prod=max(H_Gas_Prod,na.rm=T),
+    min_gas_v_prod=min(V_Gas_Prod,na.rm=T),
+    max_gas_v_prod=max(V_Gas_Prod,na.rm=T),
+    min_oil_prod=min(G_Oil_Prod,na.rm=T),
+    max_oil_prod=max(G_Oil_Prod,na.rm=T),
+    min_oil_h_prod=min(H_Oil_Prod,na.rm=T),
+    max_oil_h_prod=max(H_Oil_Prod,na.rm=T),
+    min_oil_v_prod=min(V_Oil_Prod,na.rm=T),
+    max_oil_v_prod=max(V_Oil_Prod,na.rm=T),
+    mean_beta=mean(beta,na.rm=T)
+  )
+rad_all$gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_prod>0,]$city_state)
+rad_all$oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_prod>0,]$city_state)
+rad_all$h_oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_h_prod>0,]$city_state)
+rad_all$h_gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_h_prod>0,]$city_state)
+rad_all$v_oil_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_oil_v_prod>0,]$city_state)
+rad_all$v_gas_field<-rad_all$city_state%in%unique(summary_result[summary_result$max_gas_v_prod>0,]$city_state)
+rad_all<-left_join(rad_all,oil_price[,c("YEAR","MONTH","Price")])
 
 #'# Descriptive Analysis of the data
-#' From the boxplot of $\beta$ against radon zones, we can find that $\beta$ is also
-#' negatively related with radon zones. This's similar with Pb-210, but the variation of 
-#' $\beta$ is wilder.
-#' 
-#' From the boxplotof $\beta$ against oil/gas field, we can find that $\beta$ in oil/gas
-#' filed is higher than that non-field areas.
-#' 
-#' And similar with what we found in the Pb-210 dataset, the radon level of gas/oil field
-#' is always lower than that of non-field areas.
-#' 
-#' So, we can guess that the production of oil/gas may change the local relation between
-#' the EPA radon zone estimate and the $\beta$ (a proxy to the real radon level).
-#' 
+#'Firstly, we plot the trend of monthly national average of $\beta$ radiation and monthly Brent Crude Oil price after 2006. We can see
+#'they're loosely correlated. We use a GAM model to check the correlation. We need to control for the seasonal trend because it's related with both
+#'oil price and $\beta$ radiation. After controlling for that, crude oil price is still significantly correlated with the national average $\beta$.
+#'since domestic oil production is very sensitive to the global price 
 #+ Descriptive statistics of the data, echo=F, message=F, fig.width=16, fig.height=9
-ggplot(data=rad_qs_zones,aes(x=radon,y=beta,group=radon))+geom_boxplot()
-summary(lm(beta~oil_field, data=rad_qs_zones))
-summary(lm(beta~gas_field, data=rad_qs_zones))
+ylim<-boxplot.stats(rad_all$beta)$stats[c(1, 5)]
+ratio=8000
+p<-ggplot(data=rad_all,aes(x=m_month))+
+  geom_smooth(aes(x=m_month,y=beta,color="Beta"),formula = y ~ s(x, bs = "cs",k=10),method = gam)+
+  geom_line(aes(y=Price/ratio,color="Oil Price"))+
+  geom_smooth(aes(y=Price/ratio,color="Oil Price"))+
+  scale_y_continuous(sec.axis = sec_axis(~.*ratio, name = "Brent Crude Oil Price [DPB]"))+
+  scale_colour_manual(values = c("blue", "red"))+
+  scale_x_continuous(breaks = seq(72, 203, 12),labels=2007:2017)+
+  labs(y = "Beta Radiation [pCi/m3]",
+              x = "Year",
+              colour = "Parameter")+
+  coord_cartesian(ylim=0.9*ylim)+
+  theme(legend.position = c(0.8, 0.9))
+p
+
+summary(gam(beta~Price+s(MONTH,k=12),data=rad_all))
+
+ggplot(data=rad_all,aes(x=radon,y=beta,group=radon))+geom_boxplot()
+summary(lm(beta~oil_field, data=rad_all))
+summary(lm(beta~gas_field, data=rad_all))
 
 
-g1<-ggplot(data=rad_qs_zones,aes(x=oil_field,y=beta,group=oil_field))+geom_boxplot()
-g2<-ggplot(data=rad_qs_zones,aes(x=gas_field,y=beta,group=gas_field))+geom_boxplot()
+g1<-ggplot(data=rad_all,aes(x=oil_field,y=beta,group=oil_field))+geom_boxplot()
+g2<-ggplot(data=rad_all,aes(x=gas_field,y=beta,group=gas_field))+geom_boxplot()
 cowplot::plot_grid(g1,g2)
-summary(lm(beta~oil_field,data=rad_qs_zones))
 
-rad_qs_zones%>%group_by(oil_field)%>%summarise(mean_radon=mean(radon))
-rad_qs_zones%>%group_by(gas_field)%>%summarise(mean_radon=mean(radon))
+rad_all%>%group_by(oil_field)%>%summarise(mean_radon=mean(radon))
+rad_all%>%group_by(gas_field)%>%summarise(mean_radon=mean(radon))
 
-h1<-ggplot(data=rad_qs_zones,aes(x=Gas_Prod))+geom_histogram()
-h2<-ggplot(data=rad_qs_zones,aes(x=Oil_Prod))+geom_histogram()
-h3<-ggplot(data=rad_qs_zones,aes(x=beta))+geom_histogram()
-h4<-ggplot(data=rad_qs_zones,aes(x=radon))+geom_histogram()
+h1<-ggplot(data=rad_all,aes(x=G_Gas_Prod))+geom_histogram()
+h2<-ggplot(data=rad_all,aes(x=G_Oil_Prod))+geom_histogram()
+h3<-ggplot(data=rad_all,aes(x=beta))+geom_histogram()
+h4<-ggplot(data=rad_all,aes(x=radon))+geom_histogram()
 cowplot::plot_grid(h1,h2,h3,h4)
 
 #'# Models
@@ -161,15 +153,10 @@ cowplot::plot_grid(h1,h2,h3,h4)
 #' After the log-tranformation, gross oil production is not significantly correlated with the 
 #' local $\beta$ level.
 #+ Check the effect of gross oil production,message=F
-lm_basic<-lmer(beta~radon+Thmeans+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-lm_oil_prod<-lmer(beta~radon+Thmeans+Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-confint(lm_oil_prod,parm ="Oil_Prod",method="boot",boot.type="perc")
+lm_basic<-lmer(beta~radon+Thmeans+Kmeans+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
+lm_oil_prod<-lmer(beta~radon+Thmeans+Kmeans+G_Oil_Prod+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
+confint(lm_oil_prod,parm ="G_Oil_Prod",method="boot",boot.type="perc")
 anova(lm_basic,lm_oil_prod)
-
-lm_log_basic<-lmer(log_beta~radon+Thmeans+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-lm_log_oil_prod<-lmer(log_beta~radon+Thmeans+Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-confint(lm_log_oil_prod,parm="Oil_Prod",method="boot")
-anova(lm_log_basic,lm_log_oil_prod)
 
 #' ## Horizontal Oil Production
 #' 
@@ -177,14 +164,9 @@ anova(lm_log_basic,lm_log_oil_prod)
 #' After the log-tranformation, gross oil production is not significantly correlated with the 
 #' local $\beta$ level.
 #+ Check the effect of horizontal oil production,message=F
-lm_h_oil_prod<-lmer(beta~radon+Thmeans+H_Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
+lm_h_oil_prod<-lmer(beta~radon+Thmeans+Kmeans+H_Oil_Prod+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
 confint(lm_h_oil_prod,parm ="H_Oil_Prod",method="boot",boot.type="perc")
 anova(lm_basic,lm_h_oil_prod)
-
-lm_log_basic<-lmer(log_beta~radon+Thmeans+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-lm_log_oil_prod<-lmer(log_beta~radon+Thmeans+Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-confint(lm_log_oil_prod,parm="Oil_Prod",method="boot")
-anova(lm_log_basic,lm_log_oil_prod)
 
 #' ## Vertical Oil Production
 #' 
@@ -192,10 +174,101 @@ anova(lm_log_basic,lm_log_oil_prod)
 #' After the log-tranformation, gross oil production is not significantly correlated with the 
 #' local $\beta$ level.
 #+ Check the effect of vertical oil production,message=F
-lm_v_oil_prod<-lmer(beta~radon+Thmeans+V_Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
+lm_v_oil_prod<-lmer(beta~radon+Thmeans+Kmeans+V_Oil_Prod+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
 confint(lm_v_oil_prod,parm ="V_Oil_Prod",method="boot",boot.type="perc")
 anova(lm_basic,lm_v_oil_prod)
 
-lm_log_v_oil_prod<-lmer(log_beta~radon+Thmeans+V_Oil_Prod+MONTH+YEAR+(1|city_state),data=rad_qs_zones,REML = T)
-confint(lm_log_v_oil_prod,parm="V_Oil_Prod",method="boot")
-anova(lm_log_basic,lm_log_v_oil_prod)
+lm_gas_prod<-lmer(beta~radon+Thmeans+Kmeans+G_Gas_Prod+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=rad_all,REML = T)
+confint(lm_gas_prod,parm ="G_Gas_Prod",method="boot",boot.type="perc")
+anova(lm_basic,lm_gas_prod)
+
+lm_h_gas_prod<-lmer(beta~radon+Thmeans+Kmeans+H_Gas_Prod+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
+confint(lm_h_gas_prod,parm ="H_Gas_Prod",method="boot",boot.type="perc")
+anova(lm_basic,lm_h_gas_prod)
+
+lm_v_gas_prod<-lmer(beta~radon+Thmeans+Kmeans+V_Gas_Prod+MONTH+YEAR+(1|basin_region:city_state),data=rad_all,REML = T)
+confint(lm_v_gas_prod,parm ="V_Gas_Prod",method="boot",boot.type="perc")
+anova(lm_basic,lm_v_gas_prod)
+
+
+rad_all[is.na(rad_all$H_Dist),]$H_Dist<-10^6
+rad_all[is.na(rad_all$V_Dist),]$V_Dist<-10^6
+load(here::here("data","beta_gas_oil_25.RData"))
+
+rad_all$lbeta<-log(rad_all$beta)
+rad_all$city_state<-as.factor(rad_all$city_state)
+rad_all$basin_region<-as.factor(rad_all$basin_region)
+
+V_dataset<-rad_all[!is.na(rad_all$V_Dist),]
+model_V_dist<-lmer(beta~radon+mass+Thmeans+Kmeans+V_Dist+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=V_dataset,REML = T)
+model_V_basic<-lmer(beta~radon+mass+Thmeans+Kmeans+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=V_dataset,REML = T)
+model_V_oil_prod<-lmer(beta~radon+mass+Thmeans+Kmeans+V_Dist+V_Oil_Prod+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=V_dataset,REML = T)
+model_V_gas_prod<-lmer(beta~radon+mass+Thmeans+Kmeans+V_Dist+V_Gas_Prod+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=V_dataset,REML = T)
+anova(model_V_basic,model_V_dist)
+anova(model_V_oil_prod,model_V_dist)
+anova(model_V_gas_prod,model_V_dist)
+confint(model_V_gas_prod,method="boot",nsim=500)
+confint(model_V_oil_prod,method="boot",nsim=500)
+
+model_check<-model_V_oil_prod
+g1<-ggplot(data=cbind.data.frame(res=resid(model_check),pred=fitted(model_check),color=model_check@frame$basin_region,name=model_check@frame$city),aes(y =res,x=pred,color=color))+
+  geom_point()+geom_text(aes(label=ifelse(abs(res/pred)>1,as.character(name),'')))
+g2<-ggplot(data.frame(lev=hatvalues(model_check),pearson=residuals(model_check,type="pearson"),basin=model_check@frame$basin_region,name=model_check@frame$city),aes(x=lev,y=pearson,color=basin))+
+  geom_point()+geom_text(aes(label=ifelse(lev>0.035,as.character(name),'')))
+cowplot::plot_grid(g1,g2)
+levId <- which(hatvalues(model_check) >= .035)
+V_dataset[levId,]
+model_diag <-lmer( (model_check@call$formula),data=V_dataset[-levId,],REML = T)
+
+LevCD <- data.frame(effect=fixef(model_check),
+                    change=(fixef(model_diag) - fixef(model_check)),
+                    se=sqrt(diag(vcov(model_check)))
+)
+rownames(LevCD) <- names(fixef(model_diag))
+LevCD$multiples <- abs(LevCD$change / LevCD$se)
+LevCD
+confint(model_check,method="boot",nsim=500)
+
+model_check<-model_V_gas_prod
+g1<-ggplot(data=cbind.data.frame(res=resid(model_check),pred=fitted(model_check),color=model_check@frame$basin_region,name=model_check@frame$city),aes(y =res,x=pred,color=color))+
+  geom_point()+geom_text(aes(label=ifelse(abs(res/pred)>1,as.character(name),'')))
+g2<-ggplot(data.frame(lev=hatvalues(model_check),pearson=residuals(model_check,type="pearson"),basin=model_check@frame$basin_region,name=model_check@frame$city),aes(x=lev,y=pearson,color=basin))+
+  geom_point()+geom_text(aes(label=ifelse(lev>0.035,as.character(name),'')))
+cowplot::plot_grid(g1,g2)
+levId <- which(hatvalues(model_check) >= .035)
+rad_all[levId,]
+model_diag <-lmer( (model_check@call$formula),data=V_dataset[-levId,],REML = T)
+
+LevCD <- data.frame(effect=fixef(model_check),
+                    change=(fixef(model_diag) - fixef(model_check)),
+                    se=sqrt(diag(vcov(model_check)))
+)
+rownames(LevCD) <- names(fixef(model_diag))
+LevCD$multiples <- abs(LevCD$change / LevCD$se)
+LevCD
+confint(model_diag,method="boot",nsim=500)
+
+
+H_dataset<-rad_all[!is.na(rad_all$H_Dist),]
+model_H_dist<-lmer(beta~radon+mass+Thmeans+Kmeans+H_Dist+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=H_dataset,REML = T)
+model_H_basic<-lmer(beta~radon+mass+Thmeans+Kmeans+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=H_dataset,REML = T)
+model_H_oil_prod<-lmer(beta~radon+mass+Thmeans+Kmeans+H_Dist+H_Oil_Prod+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=H_dataset,REML = T)
+model_H_gas_prod<-lmer(beta~radon+mass+Thmeans+Kmeans+H_Dist+H_Gas_Prod+(1|MONTH)+(1|YEAR)+(1|basin_region:city_state),data=H_dataset,REML = T)
+anova(model_H_basic,model_H_dist)
+anova(model_H_oil_prod,model_H_dist)
+anova(model_H_gas_prod,model_H_dist)
+confint(model_H_gas_prod,method="boot",nsim=500)
+confint(model_H_oil_prod,method="boot",nsim=500)
+
+
+
+
+
+
+plot(gam(beta~radon+Thmeans+mass+V_Dist+s(V_Gas_Prod)+s(MONTH)+s(YEAR,k=10)+s(city_state,bs="re"),data=rad_all[!is.na(rad_all$V_Dist),]))
+
+
+ggplot(data=rad_all[rad_all$city_state=="FORT WORTH,TX",])+
+  geom_point(aes(x=V_Dist,y=beta))+geom_smooth(aes(x=V_Dist,y=beta),method=gam,color="blue")+
+  geom_point(aes(x=H_Dist,y=beta))+geom_smooth(aes(x=H_Dist,y=beta),method=gam,color="red")
+

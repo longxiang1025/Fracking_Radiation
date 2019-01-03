@@ -4,7 +4,7 @@ library(nlme)
 library(pbkrtest)
 library(influence.ME)
 #random number from 0 to 151, use (1+as.int(sim/38))*25 as radius, use 1+sim%%38 as indicator of metric
-num<-as.numeric(Sys.getenv("Sim"))
+sim<-as.numeric(Sys.getenv("Sim"))
 radius<- (1+as.integer(sim/38))*25
 j<- 1+sim%%38
 options(dplyr.print_max = 1e9)

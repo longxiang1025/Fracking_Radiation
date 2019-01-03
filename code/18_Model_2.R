@@ -24,7 +24,6 @@ rad_all[,grep("Num",names(rad_all))]=rad_all[,grep("Num",names(rad_all))]/1e3
 rad_all$beta<-rad_all$beta*1000
 rad_all$lbeta<-log(rad_all$beta)
 test_data<-rad_all%>%group_by(city_state)%>%summarise(n=length(city_state))
-test_data$beta_mass<-test_data$beta/test_data$mass
 summary(test_data$n)
 test_data<-test_data%>%filter(n>70)
 test_data<-rad_all%>%filter(city_state%in%test_data$city_state)

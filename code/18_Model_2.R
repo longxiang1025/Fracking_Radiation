@@ -23,7 +23,6 @@ rad_all[,grep("Num",names(rad_all))]=rad_all[,grep("Num",names(rad_all))]/1e3
 #Current unit is aCi/L
 rad_all$beta<-rad_all$beta*1000
 rad_all$lbeta<-log(rad_all$beta)
-rad_cross$pb210<-rad_cross$pb210*1000
 test_data<-rad_all%>%group_by(city_state)%>%summarise(n=length(city_state))
 test_data$beta_mass<-test_data$beta/test_data$mass
 summary(test_data$n)

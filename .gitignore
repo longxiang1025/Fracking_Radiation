@@ -1,8 +1,10 @@
 docs/
 figures/
 data/
+log/
 
 *.html
+*.jpg
 *_cache
 *_files
 

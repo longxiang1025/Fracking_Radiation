@@ -1,11 +1,7 @@
 library(dplyr)
 library(lme4)
-library(nlme)
-library(lmerTest)
-library(mgcv)
-library(ggplot2)
-library(spdep)
-library(psych)
+library(pbkrtest)
+library(influence.ME)
 options(dplyr.print_max = 1e9)
 #' In this report, we first set the radius as 25km. If there's any oil/gas production within
 #' this circle in the study period, this RadNet monitor is categorized as within gas/oil field.
@@ -39,8 +35,6 @@ output<-as.data.frame(output)
 variables<-names(test_data)[c(7:36,38:45)]
 names(output)<-c("metric","slope","p_value","l_ci","u_ci","#cities","max_p","l_slope","u_slope")
 output$metric<-variables
-library(pbkrtest)
-library(influence.ME)
 for(j in 1:length(variables)){
   var=variables[j]
   #Number of variables in the larger model

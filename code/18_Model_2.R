@@ -45,10 +45,10 @@ for(t in grep(var,names(test_data))){
 output$metric<-var
 output$radius<-radius
 #Number of variables in the basic model
-numbers=3
-B=100
+numbers=4
+B=1000
 #basic Model
-basic_formula="lbeta~mass+vel+hpbl+(1|city_state)+(1|MONTH)+(1|YEAR)"
+basic_formula="lbeta~mass+vel+hpbl+MONTH+MONTH^2+(1|city_state)+(1|YEAR)"
 m_basic<-lmer(as.formula(basic_formula),data=test_data,REML=F)
 #gross Model
 gross_formula<-paste0(basic_formula,"+G_",var)
@@ -125,46 +125,36 @@ p5=beta.hat[numbers+2]
 tquant=quantile(tstar[,1],c(.025,.975))
 tquant
 #confidence interval of the vertical metric
-p6=beta.hat[numbers+2]-tquant[1]*se[numbers+2]
-p7=beta.hat[numbers+2]-tquant[2]*se[numbers+2]
+p6=beta.hat[numbers+2]+tquant[1]*se[numbers+2]
+p7=beta.hat[numbers+2]+tquant[2]*se[numbers+2]
 
 #coefficient of the horizontal metric
 p8=beta.hat[numbers+3]
 tquant=quantile(tstar[,2],c(.025,.975))
 tquant
 #confidence interval of the horizontal metric
-p9=beta.hat[numbers+3]-tquant[1]*se[numbers+3]
-p10=beta.hat[numbers+3]-tquant[2]*se[numbers+3]
+p9=beta.hat[numbers+3]+tquant[1]*se[numbers+3]
+p10=beta.hat[numbers+3]+tquant[2]*se[numbers+3]
 
 #coefficient of the interaction term
 p11=beta.hat[numbers+4]
 tquant=quantile(tstar[,3],c(.025,.975))
 tquant
 #confidence interval of the interaction term
-p12=beta.hat[numbers+4]-tquant[1]*se[numbers+4]
-p13=beta.hat[numbers+4]-tquant[2]*se[numbers+4]
+p12=beta.hat[numbers+4]+tquant[1]*se[numbers+4]
+p13=beta.hat[numbers+4]+tquant[2]*se[numbers+4]
 
 
-#slopes<-rep(0,length(clusters))
-#for(i in 1:length(clusters)){
-#  m<-exclude.influence(m_test,"city_state",as.character(clusters[i]))
-#  slopes[i]=fixef(m)[numbers+1]
-#}
-#Spatial sensitivity up
-#p5<-min(slopes)
-#p6<-max(slopes)
+slopes<-matrix(0,nrow=length(clusters),ncol=3)
+for(i in 1:length(clusters)){
+  m<-exclude.influence(m_type,"city_state",as.character(clusters[i]))
+  slopes[i,]=fixef(m)[(numbers+2):(numbers+4)]
+}
+slopes<-as.data.frame(slopes)
+names(slopes)<-names(fixef(m)[(numbers+2):(numbers+4)])
 
-#t_clusters<-unique(rad_all$YEAR)
-#t_slopes<-rep(0,length(t_clusters))
-#for(i in 1:length(t_clusters)){
-#  m<-exclude.influence(m_test,"YEAR",t_clusters[i])
-#  t_slopes[i]=fixef(m)[numbers+1]
-#}
-#Temporal sensitivity
-#p7<-min(t_slopes)
-#p8<-max(t_slopes)
 
 output[1,1:13]<-c(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13)
-names(output)[1:13]<-c("slope_gross","p","u_g_ci","b_p_ci","slope_v","u_v_ci","b_v_ci","slope_h","u_h_ci","b_h_ci","inter","u_inter","b_inter")
+names(output)[1:13]<-c("slope_gross","p","b_g_ci","u_p_ci","slope_v","b_v_ci","u_v_ci","slope_h","b_h_ci","u_h_ci","inter","b_inter","u_inter")
 
-save(file=here::here("result",paste0("Simu_Result_",var,"_",radius,".RData")),output)
+save(file=here::here("result",paste0("Simu_Result_",var,"_",radius,".RData")),output,slopes)

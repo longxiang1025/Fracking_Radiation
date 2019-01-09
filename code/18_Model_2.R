@@ -45,10 +45,10 @@ for(t in grep(var,names(test_data))){
 output$metric<-var
 output$radius<-radius
 #Number of variables in the basic model
-numbers=3
-B=100
+numbers=4
+B=1000
 #basic Model
-basic_formula="lbeta~mass+vel+hpbl+(1|city_state)+(1|MONTH)+(1|YEAR)"
+basic_formula="lbeta~mass+vel+hpbl+MONTH+MONTH^2+(1|city_state)+(1|YEAR)"
 m_basic<-lmer(as.formula(basic_formula),data=test_data,REML=F)
 #gross Model
 gross_formula<-paste0(basic_formula,"+G_",var)
@@ -61,7 +61,7 @@ beta.hat=fixef(m_gross)
 beta.hat
 #slope of the gross metric
 p1<-beta.hat[numbers+2]
-
+p1
 se=sqrt(diag(vcov(m_gross)))
 se
 Tstar=rep(0,B)
@@ -80,7 +80,7 @@ for(b in 1:B){
 }
 #p-value of the gross metric
 p2<-mean(Tstar>=bench)
-
+p2
 Tstar=rep(0,B)
 for(b in 1:B){
   ystar=drop(simulate(m_gross))
@@ -97,8 +97,8 @@ for(b in 1:B){
 tquant=quantile(Tstar,c(.025,.975))
 tquant
 #confidence interval of the gross metric
-p3<-p1-tquant[1]*se[numbers+2]
-p4<-p1-tquant[2]*se[numbers+2]
+p3<-p1+tquant[1]*se[numbers+2]
+p4<-p1+tquant[2]*se[numbers+2]
 
 #bootstrap of the drilling type model
 beta.hat<-fixed.effects(m_type)
@@ -125,31 +125,34 @@ p5=beta.hat[numbers+2]
 tquant=quantile(tstar[,1],c(.025,.975))
 tquant
 #confidence interval of the vertical metric
-p6=beta.hat[numbers+2]-tquant[1]*se[numbers+2]
-p7=beta.hat[numbers+2]-tquant[2]*se[numbers+2]
+p6=beta.hat[numbers+2]+tquant[1]*se[numbers+2]
+p7=beta.hat[numbers+2]+tquant[2]*se[numbers+2]
 
 #coefficient of the horizontal metric
 p8=beta.hat[numbers+3]
 tquant=quantile(tstar[,2],c(.025,.975))
 tquant
 #confidence interval of the horizontal metric
-p9=beta.hat[numbers+3]-tquant[1]*se[numbers+3]
-p10=beta.hat[numbers+3]-tquant[2]*se[numbers+3]
+p9=beta.hat[numbers+3]+tquant[1]*se[numbers+3]
+p10=beta.hat[numbers+3]+tquant[2]*se[numbers+3]
 
 #coefficient of the interaction term
 p11=beta.hat[numbers+4]
 tquant=quantile(tstar[,3],c(.025,.975))
 tquant
 #confidence interval of the interaction term
-p12=beta.hat[numbers+4]-tquant[1]*se[numbers+4]
-p13=beta.hat[numbers+4]-tquant[2]*se[numbers+4]
+p12=beta.hat[numbers+4]+tquant[1]*se[numbers+4]
+p13=beta.hat[numbers+4]+tquant[2]*se[numbers+4]
 
 
-#slopes<-rep(0,length(clusters))
-#for(i in 1:length(clusters)){
-#  m<-exclude.influence(m_test,"city_state",as.character(clusters[i]))
-#  slopes[i]=fixef(m)[numbers+1]
-#}
+slopes<-matrix(0,ncol=3,length(clusters))
+for(i in 1:length(clusters)){
+  m<-exclude.influence(m_type,"city_state",as.character(clusters[i]))
+  slopes[i,]=fixef(m)[(numbers+2):(numbers+4)]
+}
+slopes<-as.data.frame(slopes)
+names(slopes)<-names(fixef(m)[(numbers+2):(numbers+4)])
+slopes$city_state=clusters
 #Spatial sensitivity up
 #p5<-min(slopes)
 #p6<-max(slopes)
@@ -167,4 +170,4 @@ p13=beta.hat[numbers+4]-tquant[2]*se[numbers+4]
 output[1,1:13]<-c(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13)
 names(output)[1:13]<-c("slope_gross","p","u_g_ci","b_p_ci","slope_v","u_v_ci","b_v_ci","slope_h","u_h_ci","b_h_ci","inter","u_inter","b_inter")
 
-save(file=here::here("result",paste0("Simu_Result_",var,"_",radius,".RData")),output)
+save(file=here::here("result",paste0("Simu_Result_",var,"_",radius,".RData")),output,slopes)

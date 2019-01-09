@@ -364,9 +364,11 @@ city_prod<-city_prod%>%filter(!is.na(`DI Basin`))
 city_prod$Dist<-city_prod$Dist/1000
 city_prod_wind<-left_join(city_prod,radnet_wind,by=c("Prod_Year"="Year","Prod_Month"="Month","city_state"="city_state"))
 city_prod_wind<-city_prod_wind%>%filter(!is.na(uwind))
+save(file = here::here("data","dallas_data.RData"))
+data_a<-city_prod_wind[city_prod_wind$Prod_Year==2016&city_prod_wind$Prod_Month==12,]
+data_b<-city_prod_wind[city_prod_wind$Prod_Year==2007&city_prod_wind$Prod_Month==8,]
 
-data_a<-city_prod_wind[city_prod_wind$Prod_Year==2015&city_prod_wind$Prod_Month==11,]
-data_b<-city_prod_wind[city_prod_wind$Prod_Year==2010&city_prod_wind$Prod_Month==12,]
+
 wells<-pgGetGeom(con,"Well_Headers",geom="well_geom")
 radnet<-pgGetGeom(con,"RadNet_Sp","radnet_geom")
 
@@ -374,75 +376,345 @@ radnet<-radnet[radnet$city_state=="DALLAS,TX",]
 
 radnet<-spTransform(radnet,CRS(proj4string(usgs_u238)))
 wells<-spTransform(wells,CRS(proj4string(usgs_u238)))
-buffer<-gBuffer(radnet,width = 50000,quadsegs=200)
+buffer<-gBuffer(radnet,width = 70000,quadsegs=200)
 rad_vis<-cbind.data.frame(coordinates(radnet),radnet$city_state)
 names(rad_vis)<-c("x","y","city")
+
+######################################################################################
+#For Data a
 well_s<-crop(wells,gBuffer(radnet,width=r))
 well_s<-well_s[well_s$`API/UWI`%in%data_a$`API/UWI`,]
 well_s@data<-inner_join(wells@data,data_a,by="API/UWI")
 
-oil_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Oil>0,]),well_s[well_s$Monthly_Oil>0,]$Monthly_Oil)
-names(oil_vis)<-c("x","y","Prod")
+#handle the wind data
+temp_uwind<-uwind$X2016.12.31.23.56.02
+temp_vwind<-vwind$X2016.12.31.23.56.02
+temp_wind<-cbind.data.frame(coordinates(temp_uwind),values(temp_uwind),values(temp_vwind))
+names(temp_wind)<-c("x","y","u","v")
+coordinates(temp_wind)<-~x+y
+proj4string(temp_wind)<-proj4string(uwind)
+dallas_extent<-spTransform(gBuffer(radnet,width = 75000,quadsegs=200),proj4string(uwind))
+temp_wind<-crop(temp_wind,dallas_extent)
+temp_wind<-spTransform(temp_wind,proj4string(usgs_u238))
+wind_vis<-cbind.data.frame(temp_wind$x,temp_wind$y,temp_wind$u,temp_wind$v)
+names(wind_vis)<-c("x","y","u","v")
+
+oil_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Oil>0,]),well_s[well_s$Monthly_Oil>0,]$Monthly_Oil,well_s[well_s$Monthly_Oil>0,]$`Drill Type.x`)
+names(oil_vis)<-c("x","y","Prod","Type")
 oil_vis$type="Oil_Well"
 
-gas_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Gas>0,]),well_s[well_s$Monthly_Gas>0,]$Monthly_Gas)
-names(gas_vis)<-c("x","y","Prod")
+gas_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Gas>0,]),well_s[well_s$Monthly_Gas>0,]$Monthly_Gas,well_s[well_s$Monthly_Gas>0,]$`Drill Type.x`)
+names(gas_vis)<-c("x","y","Prod","Type")
 gas_vis$type="Gas_Well"
-gas_vis$Prod<-gas_vis$Prod/100
+gas_vis$Prod<-gas_vis$Prod/1000
 
 well_s_vis<-rbind.data.frame(gas_vis,oil_vis)
-# courtesy R Lovelace
-ggmap_rast <- function(map){
-  map_bbox <- attr(map, 'bb') 
-  .extent <- extent(as.numeric(map_bbox[c(2,4,1,3)]))
-  my_map <- raster(.extent, nrow= nrow(map), ncol = ncol(map))
-  rgb_cols <- setNames(as.data.frame(t(col2rgb(map))), c('red','green','blue'))
-  red <- my_map
-  values(red) <- rgb_cols[['red']]
-  green <- my_map
-  values(green) <- rgb_cols[['green']]
-  blue <- my_map
-  values(blue) <- rgb_cols[['blue']]
-  stack(red,green,blue)
-}
-
+well_s_vis[well_s_vis$Type=="D",]$Type="H"
 dallas <- c(left = -97.5, bottom = 31.8, right = -95.5, top = 33.8)
-map<- get_stamenmap(dallas, zoom = 10, maptype = "terrain",crop = T)
-dallas.rast <- ggmap_rast(map = map) # convert google map to raster object
-proj4string(dallas.rast)<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-dallas.rast<-projectRaster(dallas.rast,crs=CRS(proj4string(usgs_u238)))
-
-# prep raster as a data frame for printing with ggplot
-dallas.df <- data.frame(rasterToPoints(dallas.rast))
 
 pie <- data.frame(
   state = c('Out','In','In','Out'),
   start = c(0, pi*mean(data_a$dir-45)/180,pi*mean(data_a$dir)/180,pi*mean(data_a$dir+45)/180),
   end = c(pi*mean(data_a$dir-45)/180,pi*mean(data_a$dir)/180,pi*mean(data_a$dir+45)/180,2*pi),
-  color=c("white","red","red","white"),
+  color=c("Out","In","In","Out"),
   alpha=c('Out','In','In','Out'),
-  fill=c("white","red","red","white"),
+  fill=c("Out","In","In","Out"),
   stringsAsFactors = FALSE
 )
+dallas_city_extent<-shapefile(here::here("Data","Basic_Geodata","CityLimit.shp"))
+dallas_city_extent<-spTransform(dallas_city_extent,proj4string(usgs_u238))
 
+well_s_vis$size=ifelse(well_s_vis$Prod>50,"Big","Medium")
+well_s_vis[well_s_vis$Prod<15,]$size="Small"
+well_s_vis$size=paste0(well_s_vis$type,"_",well_s_vis$size)
+wind_vis$vel=sqrt(wind_vis$u^2+wind_vis$v^2)
+wind_vis$size=ifelse(wind_vis$vel>1.5,"Wind_Big","Wind_Medium")
+wind_vis[wind_vis$vel<1.2,]$size<-"Wind_Small"
 dallas_fig<-ggplot(dallas.df) + 
+  geom_point(data=well_s_vis,aes(x=x,y=y,size=size,color=size))+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+10000*u,yend=y+10000*v),size = 2,arrow = arrow(length = unit(0.1,"cm")))+
+  scale_color_manual("O&G Production",labels=c("Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)"),
+                     values=c("green","green","green","blue","blue","blue"))+
+  scale_size_manual("O&G Production",labels=c("Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)"),
+                    values=c(5,2,1,5,2,1))
+oglengd<-get_legend(dallas_fig)
+
+dallas_fig<-ggplot()+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 70000, start = start, end = end, 
+                                      fill = fill,alpha=alpha,color=color,size=color),
+                                  data = pie)+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+10000*u,yend=y+10000*v),size = 2,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5)+
+  scale_color_manual("Upwind zone",labels=c("Buffer Zone","Upwind Zone"),values = c("Out"="red","In"="red"))+
+  scale_size_manual("Upwind zone",labels=c("Buffer Zone","Upwind Zone"),values=c("Out"=0.5,"In"=2))+
+  scale_fill_manual("Upwind zone",labels=c("Buffer Zone","Upwind Zone"),values = c("Out"=NA,"In"="red"))+
+  scale_alpha_manual("Upwind zone",labels=c("Buffer Zone","Upwind Zone"),values=c("Out"=NA,"In"=0.1))+
+  theme(legend.title=element_blank())
+dallas_fig
+zonelegned=get_legend(dallas_fig)
+
+dallas_fig_a<-ggplot(dallas.df) + 
   #geom_point(aes(x=x, y=y, col=rgb(layer.1/256, layer.2/256, layer.3/256))) + 
   #scale_color_identity()+
-  geom_point(data=rad_vis,aes(x=x,y=y))+
-  geom_point(data=well_s_vis,aes(x=x,y=y,size=Prod,color=type))+
+  geom_point(data=well_s_vis[well_s_vis$Type=="V",],aes(x=x,y=y,size=Prod,color=type),fill="black")+
   scale_size_area(max_size = 5)+
-  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 50000, start = start, end = end, 
-                   fill = fill,alpha=alpha,color=color),size=2,
-               data = pie)+
-  scale_color_manual(values = c("white"=NA,"red"="red",
-                                "Gas_Well"="green","Oil_Well"="blue"))+
-  scale_fill_manual(values = c("white"="white","red"="red"))+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 90000, start = start, end = end, 
+                   fill = fill,alpha=alpha,color=color),size=1.5,
+               data = pie,show.legend = F)+
+  scale_color_manual(values = c("Out"=NA,"In"="red","Gas_Well"="green","Oil_Well"="blue"))+
+  scale_fill_manual(values = c("Out"="white","In"="red"))+
   scale_alpha_manual(values=c("Out"=0.5,"In"=0.1))+
-  geom_polygon(data=buffer,aes(x=long,y=lat,group=group),fill=NA,col="Red")+
-  coord_fixed()
-dallas_fig
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+5000*u,yend=y+5000*v),size = 0.5,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  geom_polygon(data=buffer,aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=50000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend=F)+
+  geom_polygon(data=gBuffer(radnet,width=25000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5,show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=90000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  coord_fixed()+
+  geom_text(data=rad_vis,aes(x=x,y=y,label=city),size=3)+
+  geom_text(data=rad_vis,aes(x=x+25000*sin((data_a$dir[1]-45)*pi/180),y=y+25000*cos((data_a$dir[1]-45)*pi/180)),label="25 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+50000*sin((data_a$dir[1]-45)*pi/180),y=y+50000*cos((data_a$dir[1]-45)*pi/180)),label="50 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+70000*sin((data_a$dir[1]-45)*pi/180),y=y+70000*cos((data_a$dir[1]-45)*pi/180)),label="75 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+90000*sin((data_a$dir[1]-45)*pi/180),y=y+90000*cos((data_a$dir[1]-45)*pi/180)),label="100 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  theme(legend.position="none",
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank())
+dallas_fig_a
 
-ggsave("dallas.pdf",dallas_fig)
+dallas_fig_b<-ggplot(dallas.df) + 
+  #geom_point(aes(x=x, y=y, col=rgb(layer.1/256, layer.2/256, layer.3/256))) + 
+  #scale_color_identity()+
+  geom_point(data=well_s_vis[well_s_vis$Type=="H",],aes(x=x,y=y,size=Prod,color=type),fill="black")+
+  scale_size_area(max_size = 5)+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 90000, start = start, end = end, 
+                   fill = fill,alpha=alpha,color=color),size=1.5,
+               data = pie,show.legend = F)+
+  scale_color_manual(values = c("Out"=NA,"In"="red","Gas_Well"="green","Oil_Well"="blue"))+
+  scale_fill_manual(values = c("Out"="white","In"="red"))+
+  scale_alpha_manual(values=c("Out"=0.5,"In"=0.1))+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+5000*u,yend=y+5000*v),size = 0.5,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  geom_polygon(data=buffer,aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=50000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend=F)+
+  geom_polygon(data=gBuffer(radnet,width=25000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=90000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5,show.legend = F)+
+  coord_fixed()+
+  geom_text(data=rad_vis,aes(x=x,y=y,label=city),size=3)+
+  geom_text(data=rad_vis,aes(x=x+25000*sin((data_a$dir[1]-45)*pi/180),y=y+25000*cos((data_a$dir[1]-45)*pi/180)),label="25 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+50000*sin((data_a$dir[1]-45)*pi/180),y=y+50000*cos((data_a$dir[1]-45)*pi/180)),label="50 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+70000*sin((data_a$dir[1]-45)*pi/180),y=y+70000*cos((data_a$dir[1]-45)*pi/180)),label="75 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+90000*sin((data_a$dir[1]-45)*pi/180),y=y+90000*cos((data_a$dir[1]-45)*pi/180)),label="100 km",angle=225-data_a$dir[1],color="Black",size=2)+
+  theme(legend.position="none",
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank())
+dallas_fig_b
+#################################################################################################
+#For Data b, 2007 8
+well_s<-crop(wells,gBuffer(radnet,width=r))
+well_s<-well_s[well_s$`API/UWI`%in%data_b$`API/UWI`,]
+well_s@data<-inner_join(wells@data,data_b,by="API/UWI")
+
+#handle the wind data
+temp_uwind<-uwind$X2007.09.01.00.56.02
+temp_vwind<-vwind$X2007.09.01.00.56.02
+temp_wind<-cbind.data.frame(coordinates(temp_uwind),values(temp_uwind),values(temp_vwind))
+names(temp_wind)<-c("x","y","u","v")
+coordinates(temp_wind)<-~x+y
+proj4string(temp_wind)<-proj4string(uwind)
+dallas_extent<-spTransform(gBuffer(radnet,width = 75000,quadsegs=200),proj4string(uwind))
+temp_wind<-crop(temp_wind,dallas_extent)
+temp_wind<-spTransform(temp_wind,proj4string(usgs_u238))
+wind_vis<-cbind.data.frame(temp_wind$x,temp_wind$y,temp_wind$u,temp_wind$v)
+names(wind_vis)<-c("x","y","u","v")
+
+oil_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Oil>0,]),well_s[well_s$Monthly_Oil>0,]$Monthly_Oil,well_s[well_s$Monthly_Oil>0,]$`Drill Type.x`)
+names(oil_vis)<-c("x","y","Prod","Type")
+oil_vis$type="Oil_Well"
+
+gas_vis<-cbind.data.frame(coordinates(well_s[well_s$Monthly_Gas>0,]),well_s[well_s$Monthly_Gas>0,]$Monthly_Gas,well_s[well_s$Monthly_Gas>0,]$`Drill Type.x`)
+names(gas_vis)<-c("x","y","Prod","Type")
+gas_vis$type="Gas_Well"
+gas_vis$Prod<-gas_vis$Prod/1000
+
+well_s_vis<-rbind.data.frame(gas_vis,oil_vis)
+well_s_vis[well_s_vis$Type=="D",]$Type="H"
+dallas <- c(left = -97.5, bottom = 31.8, right = -95.5, top = 33.8)
+
+pie <- data.frame(
+  state = c('Out','In','In','Out'),
+  start = c(0, pi*mean(data_b$dir-45)/180,pi*mean(data_b$dir)/180,pi*mean(data_b$dir+45)/180),
+  end = c(pi*mean(data_b$dir-45)/180,pi*mean(data_b$dir)/180,pi*mean(data_b$dir+45)/180,2*pi),
+  color=c("Out","In","In","Out"),
+  alpha=c('Out','In','In','Out'),
+  fill=c("Out","In","In","Out"),
+  stringsAsFactors = FALSE
+)
+dallas_city_extent<-shapefile(here::here("Data","Basic_Geodata","CityLimit.shp"))
+dallas_city_extent<-spTransform(dallas_city_extent,proj4string(usgs_u238))
+
+well_s_vis$size=ifelse(well_s_vis$Prod>50,"Big","Medium")
+well_s_vis[well_s_vis$Prod<15,]$size="Small"
+well_s_vis$size=paste0(well_s_vis$type,"_",well_s_vis$size)
+
+dallas_fig<-ggplot(dallas.df) + 
+  geom_point(data=well_s_vis,aes(x=x,y=y,size=size,color=size))+
+  #geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 70000, start = start, end = end, 
+  #                 fill = color,alpha=color,color=color,size=color),
+  #             data = pie)+
+  scale_color_manual(guide="legend",
+                     labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                     breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                     values=c("Out"="red","Gas_Well_Big"="green","Gas_Well_Medium"="green","Gas_Well_Small"="green",
+                              "Oil_Well_Big"="blue","Oil_Well_Medium"="blue","Oil_Well_Small"="blue","In"="red"))+
+  scale_size_manual(guide="legend",
+                    labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                    breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                    values=c("Out"=1,"Gas_Well_Big"=5,"Gas_Well_Medium"=2,"Gas_Well_Small"=1,
+                             "Oil_Well_Big"=5,"Oil_Well_Medium"=2,"Oil_Well_Small"=1,"In"=1.5))+
+  scale_fill_manual(guide = "legend",
+                    labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                    breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                    values = c("Out"="white","Gas_Well_Big"=NA,"Gas_Well_Medium"=NA,"Gas_Well_Small"=NA,
+                               "Oil_Well_Big"=NA,"Oil_Well_Medium"=NA,"Oil_Well_Small"=NA,"In"="red"))+
+  scale_alpha_manual(guide = "legend",
+                     labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                     breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                     values =c("Out"=0.5,"Gas_Well_Big"=NA,"Gas_Well_Medium"=NA,"Gas_Well_Small"=NA,
+                               "Oil_Well_Big"=NA,"Oil_Well_Medium"=NA,"Oil_Well_Small"=NA,"In"=0.1) )+
+  guides(size = guide_legend("Legend"),
+         colour = guide_legend("Legend"))
+dallas_fig
+oglegend<-get_legend(dallas_fig)
+
+dallas_fig<-ggplot()+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 70000, start = start, end = end, 
+                   fill = fill,alpha=alpha,color=color,size=color),
+               data = pie)+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+5000*u,yend=y+5000*v),size = 0.5,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  #geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5)+
+  scale_color_manual(name=NULL,
+                     labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                     breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                     values=c("Out"="red","Gas_Well_Big"="green","Gas_Well_Medium"="green","Gas_Well_Small"="green",
+                              "Oil_Well_Big"="blue","Oil_Well_Medium"="blue","Oil_Well_Small"="blue","In"="red"))+
+  scale_size_manual(name=NULL,
+                    labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                    breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                    values=c("Out"=1,"Gas_Well_Big"=5,"Gas_Well_Medium"=2,"Gas_Well_Small"=1,
+                             "Oil_Well_Big"=5,"Oil_Well_Medium"=2,"Oil_Well_Small"=1,"In"=1.5))+
+  scale_fill_manual(name = NULL,
+                    labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                    breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                    values = c("Out"="white","Gas_Well_Big"=NA,"Gas_Well_Medium"=NA,"Gas_Well_Small"=NA,
+                               "Oil_Well_Big"=NA,"Oil_Well_Medium"=NA,"Oil_Well_Small"=NA,"In"="red"))+
+  scale_alpha_manual(name = NULL,
+                     labels=c("Buffer Zone","Gas (>50k Mcf)","Gas (15~50k Mcf)","Gas (<15k Mcf)", "Oil (>50 bbl)", "Oil (15~50 bbl)","Oil (<15 bbl)","Upwind Zone"),
+                     breaks=c("Out","Gas_Well_Big","Gas_Well_Medium","Gas_Well_Small","Oil_Well_Big","Oil_Well_Medium","Oil_Well_Small","In"),
+                     values =c("Out"=0.5,"Gas_Well_Big"=NA,"Gas_Well_Medium"=NA,"Gas_Well_Small"=NA,
+                               "Oil_Well_Big"=NA,"Oil_Well_Medium"=NA,"Oil_Well_Small"=NA,"In"=0.1) )
+dallas_fig
+zonelegned=get_legend(dallas_fig)
+
+dallas_fig_c<-ggplot(dallas.df) + 
+  #geom_point(aes(x=x, y=y, col=rgb(layer.1/256, layer.2/256, layer.3/256))) + 
+  #scale_color_identity()+
+  geom_point(data=well_s_vis[well_s_vis$Type=="V",],aes(x=x,y=y,size=Prod,color=type),fill="black")+
+  scale_size_area(max_size = 5)+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 90000, start = start, end = end, 
+                   fill = fill,alpha=alpha,color=color),size=1.5,
+               data = pie,show.legend = F)+
+  scale_color_manual(values = c("Out"=NA,"In"="red","Gas_Well"="green","Oil_Well"="blue"))+
+  scale_fill_manual(values = c("Out"="white","In"="red"))+
+  scale_alpha_manual(values=c("Out"=0.5,"In"=0.1))+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+5000*u,yend=y+5000*v),size = 0.5,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  geom_polygon(data=buffer,aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=50000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend=F)+
+  geom_polygon(data=gBuffer(radnet,width=25000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=90000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5,show.legend = F)+
+  coord_fixed()+
+  geom_text(data=rad_vis,aes(x=x,y=y,label=city),size=3)+
+  geom_text(data=rad_vis,aes(x=x+25000*sin((data_b$dir[1]-45)*pi/180),y=y+25000*cos((data_b$dir[1]-45)*pi/180)),label="25 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+50000*sin((data_b$dir[1]-45)*pi/180),y=y+50000*cos((data_b$dir[1]-45)*pi/180)),label="50 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+70000*sin((data_b$dir[1]-45)*pi/180),y=y+70000*cos((data_b$dir[1]-45)*pi/180)),label="75 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+90000*sin((data_b$dir[1]-45)*pi/180),y=y+90000*cos((data_b$dir[1]-45)*pi/180)),label="100 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  theme(legend.position="none",
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank())
+dallas_fig_c
+
+dallas_fig_d<-ggplot(dallas.df) + 
+  #geom_point(aes(x=x, y=y, col=rgb(layer.1/256, layer.2/256, layer.3/256))) + 
+  #scale_color_identity()+
+  geom_point(data=well_s_vis[well_s_vis$Type=="H",],aes(x=x,y=y,size=Prod,color=type),fill="black")+
+  scale_size_area(max_size = 5)+
+  geom_arc_bar(aes(x0 = rad_vis$x, y0 = rad_vis$y, r0 = 0, r = 90000, start = start, end = end, 
+                   fill = fill,alpha=alpha,color=color),size=1.5,
+               data = pie,show.legend = F)+
+  scale_color_manual(values = c("Out"=NA,"In"="red","Gas_Well"="green","Oil_Well"="blue"))+
+  scale_fill_manual(values = c("Out"="white","In"="red"))+
+  scale_alpha_manual(values=c("Out"=0.5,"In"=0.1))+
+  geom_segment(data=wind_vis,aes(x=x,y=y,xend=x+5000*u,yend=y+5000*v),size = 0.5,arrow = arrow(length = unit(0.1,"cm")),show.legend = F)+
+  geom_polygon(data=buffer,aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=50000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend=F)+
+  geom_polygon(data=gBuffer(radnet,width=25000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=gBuffer(radnet,width=90000,quadsegs = 200),aes(x=long,y=lat,group=group),fill=NA,col="Red",show.legend = F)+
+  geom_polygon(data=dallas_city_extent,aes(x=long,y=lat,group=group),fill="Grey",col="Grey",alpha=0.5,show.legend = F)+
+  coord_fixed()+
+  geom_text(data=rad_vis,aes(x=x,y=y,label=city),size=3)+
+  geom_text(data=rad_vis,aes(x=x+25000*sin((data_b$dir[1]-45)*pi/180),y=y+25000*cos((data_b$dir[1]-45)*pi/180)),label="25 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+50000*sin((data_b$dir[1]-45)*pi/180),y=y+50000*cos((data_b$dir[1]-45)*pi/180)),label="50 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+70000*sin((data_b$dir[1]-45)*pi/180),y=y+70000*cos((data_b$dir[1]-45)*pi/180)),label="75 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  geom_text(data=rad_vis,aes(x=x+90000*sin((data_b$dir[1]-45)*pi/180),y=y+90000*cos((data_b$dir[1]-45)*pi/180)),label="100 km",angle=225-data_b$dir[1],color="Black",size=2)+
+  theme(legend.position="none",
+        axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank())
+dallas_fig_d
+
+up_row<-plot_grid(dallas_fig_a,dallas_fig_b,NULL,nrow=1,labels = c("A","B",NA),label_x = 0.1,label_y = 0.9,rel_widths = c(5,5,3))
+legend<-plot_grid(oglegend,zonelegned,nrow=2,rel_heights = c(4,2))
+legend_col<-plot_grid(legend,NULL,nrow=1,rel_widths = c(1,1))
+legend_col<-plot_grid(NULL,legend_col,rel_widths = c(1,5))
+bot_row<-plot_grid(dallas_fig_c,dallas_fig_d,legend_col,nrow=1,labels=c("C","D",NA),label_x=0.1,label_y = 0.9,rel_widths = c(5,5,3))
+dallas_fig<-plot_grid(up_row,bot_row,nrow=2,rel_heights = c(1,1))
+
+ggsave("dallas.pdf",dallas_fig,width=7,height=5,unit="in")
 #####################################################################
 #
 load(here::here("data","beta_gas_oil_avg_wind_50.RData"))

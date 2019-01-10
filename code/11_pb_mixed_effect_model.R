@@ -58,10 +58,6 @@ options(dplyr.print_max = 1e9)
 #' Otherwise, this RadNet monitor is categorized as clean ones.
 #+ Loading the Lead-210 and gas/oil production data within 25km, message=F, echo=F,warning=F 
 load(here::here("data","pb_gas_oil_50.RData"))
-load(here::here("data","beta_gas_oil_avg_wind_25.RData"))
-rad_all<-rad_all%>%filter(city_state!="EUREKA,CA")
-rad_all<-rad_all%>%filter(city_state!="LUBBOCK,TX")
-rad_all<-rad_all%>%filter(!is.na(mass))
 ##############################################
 #Massage the pb-210 dataset
 rad_cross[is.na(rad_cross$Radon),]$Radon=6
@@ -73,12 +69,8 @@ rad_cross$Oil_Field<-(rad_cross$G_Oil_Num>0)
 rad_cross$Gas_Field<-(rad_cross$G_Gas_Num>0)
 rad_cross$Play<-rad_cross$Oil_Field|rad_cross$Gas_Field
 
-rad_cross$G_Oil_Prod<-rad_cross$G_Oil_Prod/1e6
-rad_cross$H_Oil_Prod<-rad_cross$H_Oil_Prod/1e6
-rad_cross$V_Oil_Prod<-rad_cross$V_Oil_Prod/1e6
-rad_cross$G_Gas_Prod<-rad_cross$G_Gas_Prod/1e6
-rad_cross$H_Gas_Prod<-rad_cross$H_Gas_Prod/1e6
-rad_cross$V_Gas_Prod<-rad_cross$V_Gas_Prod/1e6
+rad_cross[,grep("Prod",names(rad_cross))]=rad_cross[,grep("Prod",names(rad_cross))]/1e6
+rad_cross[,grep("Num",names(rad_cross))]=rad_cross[,grep("Num",names(rad_cross))]/1e3
 ###################################################
 #Massage the beta dataset
 
@@ -200,161 +192,44 @@ col.knn <- knearneigh(coords, k=7)
 W_dist<-dnearneigh(coords,0,1500,longlat = T)
 W_dist<-nb2listw(W_dist, glist=NULL, style="W", zero.policy=NULL)
 
-rad_cross[is.na(rad_cross$H_Oil_Prod),]$H_Oil_Prod=0
-
-g_0<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=15),
-        data=rad_cross)
-g_m<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+vel+V_Oil_Prod+s(Lon,Lat,k=15),
-         data=rad_cross)
-
-moran.test(resid(g_m),W_dist)
-moran.test(resid(g_0),W_dist)
-summary(g_m)
-anova.gam(g_m,g_0,test="F")
-
-
-cooks<-cooks.distance(g_m)
-g_m2<-gam(log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod+s(Lon,Lat,k=15),
-          data=rad_cross[-which.max(cooks),])
-summary(g_m2)
-
-g_ls<-gls(log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod,
-          correlation=corGaus(form=~Lon+Lat,nugget=TRUE),data=rad_cross)
-confint(g_ls)
-summary(g_ls)
-
-sar_0<-lagsarlm(formula=log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel,
-                data=rad_cross,listw =  W_dist)
-sar_m<-lagsarlm(formula=log_pb~Radon+mass+Coast_Dist+Umeans+Thmeans+vel+H_Oil_Prod,
-                data=rad_cross,listw =  W_dist)
-anova.sarlm(sar_0,sar_m)
-LR.sarlm(sar_0,sar_m)
-summary(sar_m)
-
-###
-diagnosis<-function(model){
-  cooks<-cooks.distance(model)
-  temp_cooks<-cbind.data.frame(model@frame,cooks)
-  cooks<-temp_cooks%>%group_by(city_state)%>%summarise(mean_cooks=mean(cooks))
-  exclude_city<-cooks[which.max(cooks$mean_cooks),]
-  new_data<-rad_all%>%filter(city_state!=exclude_city$city_state)
-  new_model<-lmer(model@call$formula,data=new_data,REML=F)
-  new_effects<-fixed.effects(new_model)
-  effects<-fixed.effects(model)
-  ratios<-new_effects/effects
-  anova(model,test="F")
-  return(ratios)
+variables<-names(rad_cross)[c(9:11,13:45)]
+result<-matrix(0,ncol=12,nrow=length(variables))
+for(i in 1:length(variables)){
+  var=variables[i]
+  rad_cross[is.na(rad_cross[,var]),var]=0
+  #gam comparison section
+  small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=23)"
+  large_fromula=paste0(small_formula,"+",var)
+  g0<-gam(as.formula(small_formula),data=rad_cross)
+  g_m<-gam(as.formula(large_fromula),data=rad_cross)
+  lrtest<-anova.gam(g_m,g_0,test="F")
+  #glm comparison section
+  small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel"
+  large_formula=paste0(small_formula,"+",var)
+  g_ls<-gls(as.formula(large_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE),data=rad_cross)
+  t<-coef(g_ls)[7]/sqrt(diag(vcov(g_ls)))[7]
+  #summary(g_ls)
+  sar_m<-lagsarlm(as.formula(large_formula),data=rad_cross,listw =  W_dist)
+  t2<-coef(sar_m)[8]/sqrt(diag(vcov(sar_m)))[8]
+  #summary(sar_m)
+  result[i,]<-c(coef(g_m)[7],
+                coef(g_m)[7]-1.96*sqrt(diag(vcov.gam(g_m)))[7],
+                coef(g_m)[7]+1.96*sqrt(diag(vcov.gam(g_m)))[7],
+                pnorm(-abs(coef(g_m)[7]/sqrt(diag(vcov.gam(g_m)))[7])),
+                coef(g_ls)[7],
+                coef(g_ls)[7]-1.96*sqrt(diag(vcov(g_ls)))[7],
+                coef(g_ls)[7]+1.96*sqrt(diag(vcov(g_ls)))[7],
+                pnorm(-abs(t)),
+                coef(sar_m)[8],
+                coef(sar_m)[8]-1.96*sqrt(diag(vcov(sar_m)))[8],
+                coef(sar_m)[8]+1.96*sqrt(diag(vcov(sar_m)))[8],
+                pnorm(-abs(t2))
+  )
 }
-group_boot_est<-function(model,n_variables=3,nsim=100,block=F){
-  library(progress)
-  result<-matrix(0,ncol=length(names(fixed.effects(model))),nrow=nsim)
-  clusters<-unique(model@frame$city_state)
-  pb <- progress_bar$new(total = nsim)
-  boot_data<-model@frame
-  for(i in 1:nsim){
-    temp_data<-simulate(model, newdata=boot_data[-1], re.form=NA,
-                        allow.new.levels=F)$sim_1
-    sim_data<-boot_data
-    sim_data$lbeta<-as.numeric(temp_data)
-    if(!block){
-      city_list<-clusters 
-    }else{
-      city_list<-sample(clusters,length(clusters),replace = T)
-    }
-    city_list<-as.data.frame(city_list)
-    names(city_list)<-"city_state"
-    temp_data<-left_join(city_list,sim_data,by="city_state")
-    new_model<-lmer(model@call$formula,data=temp_data,REML=F)
-    new_effects<-fixed.effects(new_model)
-    result[i,]<-new_effects
-    pb$tick()
-  }
-  result<-as.data.frame(result)
-  names(result)<-names(fixed.effects(model))
-  return(result)
-}
-group_boot_comp<-function(small_model,big_model,nsim=100,block=F)
-{
-  library(progress)
-  result<-matrix(0,ncol =2,nrow=nsim)
-  clusters<-unique(small_model@frame$city_state)
-  pb <- progress_bar$new(total = nsim)
-  boot_data<-big_model@frame
-  for(i in 1:nsim){
-    temp_data<-simulate(small_model, newdata=small_model@frame[-1],
-                        allow.new.levels=F)$sim_1
-    sim_data<-boot_data
-    sim_data$lbeta<-as.numeric(temp_data)
-    if(!block){
-      city_list<-clusters 
-    }else{
-      city_list<-sample(clusters,length(clusters),replace = T)
-    }
-    city_list<-as.data.frame(city_list)
-    names(city_list)<-"city_state"
-    temp_data<-left_join(city_list,sim_data,by="city_state")
-    new_b_model<-refit(small_model@call$formula,data=temp_data,REML=F)
-    new_c_model<-lmer(big_model@call$formula,data=temp_data,REML=F)
-    a<-anova(new_b_model,new_c_model)
-    lrt_result<-a$logLik
-    result[i,]<-lrt_result
-    pb$tick()
-  }
-  result<-as.data.frame(result)
-  names(result)<-c("Log_lk_s","Log_lk_b")
-  return(result)
-}
+result<-as.data.frame(result)
+names(result)<-c("coef","Low","Up","P","coef","Low","Up","P","coef","Low","Up","P")
+result$metric<-variables
 
-###############
-test_data<-rad_all%>%group_by(city_state)%>%summarise(n=length(city_state))
-test_data$beta_mass<-test_data$beta/test_data$mass
-summary(test_data$n)
-test_data<-test_data%>%filter(n>70)
-test_data<-rad_all%>%filter(city_state%in%test_data$city_state)
-output<-matrix(0,nrow=38,ncol=9)
-output<-as.data.frame(output)
-variables<-names(test_data)[c(7:36,38:45)]
-names(output)<-c("metric","slope","p_value","l_ci","u_ci","#cities","max_p","l_slope","u_slope")
-output$metric<-variables
-library(pbkrtest)
-library(doParallel)
-library(foreach)
-library(influence.ME)
-n=detectCores()
-for(j in 1:length(variables)){
-  var=variables[j]
-  #Number of variables in the larger model
-  numbers=3
-  cl<-makeCluster(n)
-  registerDoParallel(cl)
-  small_formula="lbeta~mass+vel+(1|city_state)+(1|MONTH)+(1|YEAR)"
-  m_basic<-lmer(as.formula(small_formula),data=test_data,REML=F)
-  big_formula<-paste(small_formula,"+",var)
-  m_test<-lmer(as.formula(big_formula),data=test_data,REML=F)
-  p2<-PBmodcomp(m_test,m_basic,nsim=100,cl=cl)
-  p2<-p2$test$p.value[2]
-  p1<-fixed.effects(m_test)[var]
-  ci<-confint(m_test,parm=var,method="boot",nsim=250,boot.type="perc")
-  infuence<-influence(m_test,group="city_state")
-  cooks<-cooks.distance.estex(infuence)
-  city_list<-names(cooks[cooks>0.10,])
-  p3<-length(city_list)
-  result<-matrix(0,nrow=length(city_list),ncol=numbers+2)
-  for(i in 1:length(city_list)){
-    b_model<-exclude.influence(m_basic,"city_state",city_list[i])
-    c_model<-exclude.influence(m_test,"city_state",city_list[i])
-    p<-PBmodcomp(c_model,b_model,nsim=100,cl=cl)
-    p<-p$test$p.value[2]
-    print(paste(p,city_list[i]))
-    result[i,]=c(fixef(c_model),p)
-  }
-  p4<-max(result[,numbers+2])
-  p5<-min(result[,numbers+1]/p1)
-  p6<-max(result[,numbers+1]/p1)
-  row<-c(p1,p2,ci,p3,p4,p5,p6)
-  output[j,2:9]<-row
-  stopCluster(cl)
-  print(output[j,])
-}
+print(result)
 
 

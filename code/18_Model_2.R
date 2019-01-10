@@ -3,6 +3,7 @@ library(lme4)
 library(nlme)
 library(pbkrtest)
 library(influence.ME)
+require("splines")
 #random number from 0 to 151, use (1+as.int(sim/12))*25 as radius, use 1+sim%%38 as indicator of metric
 sim<-as.numeric(Sys.getenv("Sim"))
 radius<- (1+as.integer(sim/12))*25
@@ -45,10 +46,10 @@ for(t in grep(var,names(test_data))){
 output$metric<-var
 output$radius<-radius
 #Number of variables in the basic model
-numbers=4
+numbers=10
 B=1000
 #basic Model
-basic_formula="lbeta~mass+vel+hpbl+MONTH+MONTH^2+(1|city_state)+(1|YEAR)"
+basic_formula="lbeta~mass+vel+hpbl+bs(m_month,7)+(1|city_state)"
 m_basic<-lmer(as.formula(basic_formula),data=test_data,REML=F)
 #gross Model
 gross_formula<-paste0(basic_formula,"+G_",var)
@@ -61,9 +62,9 @@ beta.hat=fixef(m_gross)
 beta.hat
 #slope of the gross metric
 p1<-beta.hat[numbers+2]
-
+p1
 se=sqrt(diag(vcov(m_gross)))
-se
+se[numbers+2]
 Tstar=rep(0,B)
 bench=abs(beta.hat[numbers+2]/se[numbers+2])
 for(b in 1:B){
@@ -80,7 +81,7 @@ for(b in 1:B){
 }
 #p-value of the gross metric
 p2<-mean(Tstar>=bench)
-
+p2
 Tstar=rep(0,B)
 for(b in 1:B){
   ystar=drop(simulate(m_gross))
@@ -97,9 +98,10 @@ for(b in 1:B){
 tquant=quantile(Tstar,c(.025,.975))
 tquant
 #confidence interval of the gross metric
-p3<-p1-tquant[1]*se[numbers+2]
-p4<-p1-tquant[2]*se[numbers+2]
-
+p3<-p1+tquant[1]*se[numbers+2]
+p4<-p1+tquant[2]*se[numbers+2]
+p3
+p4
 #bootstrap of the drilling type model
 beta.hat<-fixed.effects(m_type)
 se=sqrt(diag(vcov(m_type)))
@@ -122,12 +124,14 @@ for(b in 1:B){
 
 #coefficient of the vertical metric
 p5=beta.hat[numbers+2]
+p5
 tquant=quantile(tstar[,1],c(.025,.975))
 tquant
 #confidence interval of the vertical metric
 p6=beta.hat[numbers+2]+tquant[1]*se[numbers+2]
 p7=beta.hat[numbers+2]+tquant[2]*se[numbers+2]
-
+p6
+p7
 #coefficient of the horizontal metric
 p8=beta.hat[numbers+3]
 tquant=quantile(tstar[,2],c(.025,.975))
@@ -152,6 +156,7 @@ for(i in 1:length(clusters)){
 }
 slopes<-as.data.frame(slopes)
 names(slopes)<-names(fixef(m)[(numbers+2):(numbers+4)])
+slopes$city<-clusters
 
 
 output[1,1:13]<-c(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13)

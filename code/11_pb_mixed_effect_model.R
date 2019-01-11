@@ -194,42 +194,73 @@ W_dist<-nb2listw(W_dist, glist=NULL, style="W", zero.policy=NULL)
 
 variables<-names(rad_cross)[c(9:11,13:45)]
 result<-matrix(0,ncol=12,nrow=length(variables))
+clusters<-unique(rad_cross$city_state)
+sens_result<-list()
 for(i in 1:length(variables)){
   var=variables[i]
   rad_cross[is.na(rad_cross[,var]),var]=0
   #gam comparison section
   small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=23)"
-  large_fromula=paste0(small_formula,"+",var)
-  g0<-gam(as.formula(small_formula),data=rad_cross)
-  g_m<-gam(as.formula(large_fromula),data=rad_cross)
+  large_gam_formula=paste0(small_formula,"+",var)
+  g_0<-gam(as.formula(small_formula),data=rad_cross)
+  g_m<-gam(as.formula(large_gam_formula),data=rad_cross)
   lrtest<-anova.gam(g_m,g_0,test="F")
   #glm comparison section
   small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel"
-  large_formula=paste0(small_formula,"+",var)
-  g_ls<-gls(as.formula(large_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE),data=rad_cross)
+  large_gls_formula=paste0(small_formula,"+",var)
+  g_ls<-gls(as.formula(large_gls_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE),data=rad_cross)
   t<-coef(g_ls)[7]/sqrt(diag(vcov(g_ls)))[7]
   #summary(g_ls)
-  sar_m<-lagsarlm(as.formula(large_formula),data=rad_cross,listw =  W_dist)
+  sar_m<-lagsarlm(as.formula(large_gls_formula),data=rad_cross,listw =  W_dist)
   t2<-coef(sar_m)[8]/sqrt(diag(vcov(sar_m)))[8]
   #summary(sar_m)
   result[i,]<-c(coef(g_m)[7],
                 coef(g_m)[7]-1.96*sqrt(diag(vcov.gam(g_m)))[7],
                 coef(g_m)[7]+1.96*sqrt(diag(vcov.gam(g_m)))[7],
-                pnorm(-abs(coef(g_m)[7]/sqrt(diag(vcov.gam(g_m)))[7])),
+                2*pnorm(-abs(coef(g_m)[7]/sqrt(diag(vcov.gam(g_m)))[7])),
                 coef(g_ls)[7],
                 coef(g_ls)[7]-1.96*sqrt(diag(vcov(g_ls)))[7],
                 coef(g_ls)[7]+1.96*sqrt(diag(vcov(g_ls)))[7],
-                pnorm(-abs(t)),
+                2*pnorm(-abs(t)),
                 coef(sar_m)[8],
                 coef(sar_m)[8]-1.96*sqrt(diag(vcov(sar_m)))[8],
                 coef(sar_m)[8]+1.96*sqrt(diag(vcov(sar_m)))[8],
-                pnorm(-abs(t2))
+                2*pnorm(-abs(t2))
   )
+  cv_result<-matrix(0,nrow=length(clusters),ncol=4)
+  for(j in 1:length(clusters)){
+   temp_data<-rad_cross%>%filter(city_state!=clusters[j])
+   gam_2<-gam(as.formula(large_gam_formula),data=temp_data)
+   gls_2<-gls(as.formula(large_gls_formula),data=temp_data)
+   cv_coords <- as.matrix(temp_data[,c("Lon","Lat")])
+   cv_col.knn <- knearneigh(cv_coords, k=7)
+   cv_W_dist<-dnearneigh(cv_coords,0,1500,longlat = T)
+   cv_W_dist<-nb2listw(cv_W_dist, glist=NULL, style="W", zero.policy=NULL)
+   sar_2<-lagsarlm(as.formula(large_gls_formula),data=temp_data,listw = cv_W_dist)
+   cv_result[j,]<-c(coef(gam_2)[7],coef(gls_2)[7],coef(sar_2)[8],clusters[j])
+  }
+  cv_result<-as.data.frame(cv_result)
+  names(cv_result)<-c("gam_coef","gls_coef","sar_coef","city_state")
+  cv_result[,c("gam_coef")]<-as.numeric(as.character(cv_result[,c("gam_coef")]))
+  cv_result[,c("gls_coef")]<-as.numeric(as.character(cv_result[,c("gls_coef")]))
+  cv_result[,c("sar_coef")]<-as.numeric(as.character(cv_result[,c("sar_coef")]))
+  cv_result$city_state<-as.character(cv_result$city_state)
+  cv_result$metric=var
+  sens_result[[i]]<-cv_result
 }
 result<-as.data.frame(result)
-names(result)<-c("coef","Low","Up","P","coef","Low","Up","P","coef","Low","Up","P")
+names(result)<-c("gam_coef","gam_Low","gam_Up","gam_P","gls_coef","gls_Low","gls_Up","gls_P","sar_coef","sar_Low","sar_Up","sar_P")
 result$metric<-variables
-
+sens_result<-do.call(rbind.data.frame,sens_result)
+sens_range<-sens_result%>%group_by(metric)%>%summarise(max_gam=max(gam_coef),
+                                                       min_gam=min(gam_coef),
+                                                       max_gls=max(gls_coef),
+                                                       min_gls=min(gls_coef),
+                                                       max_sar=max(sar_coef),
+                                                       min_sar=min(sar_coef))
+result<-left_join(result,sens_range)
+(result[result$gam_P<0.05,grepl("gam",names(result))])
+result%>%filter(gam_P<0.05,gls_P<0.05,sar_P<0.05)%>%select(gam_coef,gls_coef,sar_coef,metric)
 print(result)
 
 

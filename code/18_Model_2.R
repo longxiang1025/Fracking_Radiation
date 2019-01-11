@@ -3,6 +3,7 @@ library(lme4)
 library(nlme)
 library(pbkrtest)
 library(influence.ME)
+require("splines")
 #random number from 0 to 151, use (1+as.int(sim/12))*25 as radius, use 1+sim%%38 as indicator of metric
 sim<-as.numeric(Sys.getenv("Sim"))
 radius<- (1+as.integer(sim/12))*25
@@ -45,10 +46,17 @@ for(t in grep(var,names(test_data))){
 output$metric<-var
 output$radius<-radius
 #Number of variables in the basic model
+<<<<<<< HEAD
 numbers=4
 B=1000
 #basic Model
 basic_formula="lbeta~mass+vel+hpbl+MONTH+MONTH^2+(1|city_state)+(1|YEAR)"
+=======
+numbers=10
+B=1000
+#basic Model
+basic_formula="lbeta~mass+vel+hpbl+bs(m_month,7)+(1|city_state)"
+>>>>>>> 9348793615d887f4b55152ac3197a9cb92e0a413
 m_basic<-lmer(as.formula(basic_formula),data=test_data,REML=F)
 #gross Model
 gross_formula<-paste0(basic_formula,"+G_",var)
@@ -63,7 +71,7 @@ beta.hat
 p1<-beta.hat[numbers+2]
 p1
 se=sqrt(diag(vcov(m_gross)))
-se
+se[numbers+2]
 Tstar=rep(0,B)
 bench=abs(beta.hat[numbers+2]/se[numbers+2])
 for(b in 1:B){
@@ -99,7 +107,12 @@ tquant
 #confidence interval of the gross metric
 p3<-p1+tquant[1]*se[numbers+2]
 p4<-p1+tquant[2]*se[numbers+2]
+<<<<<<< HEAD
 
+=======
+p3
+p4
+>>>>>>> 9348793615d887f4b55152ac3197a9cb92e0a413
 #bootstrap of the drilling type model
 beta.hat<-fixed.effects(m_type)
 se=sqrt(diag(vcov(m_type)))
@@ -122,12 +135,18 @@ for(b in 1:B){
 
 #coefficient of the vertical metric
 p5=beta.hat[numbers+2]
+p5
 tquant=quantile(tstar[,1],c(.025,.975))
 tquant
 #confidence interval of the vertical metric
 p6=beta.hat[numbers+2]+tquant[1]*se[numbers+2]
 p7=beta.hat[numbers+2]+tquant[2]*se[numbers+2]
+<<<<<<< HEAD
 
+=======
+p6
+p7
+>>>>>>> 9348793615d887f4b55152ac3197a9cb92e0a413
 #coefficient of the horizontal metric
 p8=beta.hat[numbers+3]
 tquant=quantile(tstar[,2],c(.025,.975))
@@ -145,29 +164,28 @@ p12=beta.hat[numbers+4]+tquant[1]*se[numbers+4]
 p13=beta.hat[numbers+4]+tquant[2]*se[numbers+4]
 
 
+<<<<<<< HEAD
 slopes<-matrix(0,ncol=3,length(clusters))
+=======
+slopes<-matrix(0,nrow=length(clusters),ncol=3)
+>>>>>>> 9348793615d887f4b55152ac3197a9cb92e0a413
 for(i in 1:length(clusters)){
   m<-exclude.influence(m_type,"city_state",as.character(clusters[i]))
   slopes[i,]=fixef(m)[(numbers+2):(numbers+4)]
 }
 slopes<-as.data.frame(slopes)
 names(slopes)<-names(fixef(m)[(numbers+2):(numbers+4)])
+<<<<<<< HEAD
 slopes$city_state=clusters
 #Spatial sensitivity up
 #p5<-min(slopes)
 #p6<-max(slopes)
+=======
+slopes$city<-clusters
+>>>>>>> 9348793615d887f4b55152ac3197a9cb92e0a413
 
-#t_clusters<-unique(rad_all$YEAR)
-#t_slopes<-rep(0,length(t_clusters))
-#for(i in 1:length(t_clusters)){
-#  m<-exclude.influence(m_test,"YEAR",t_clusters[i])
-#  t_slopes[i]=fixef(m)[numbers+1]
-#}
-#Temporal sensitivity
-#p7<-min(t_slopes)
-#p8<-max(t_slopes)
 
 output[1,1:13]<-c(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13)
-names(output)[1:13]<-c("slope_gross","p","u_g_ci","b_p_ci","slope_v","u_v_ci","b_v_ci","slope_h","u_h_ci","b_h_ci","inter","u_inter","b_inter")
+names(output)[1:13]<-c("slope_gross","p","b_g_ci","u_p_ci","slope_v","b_v_ci","u_v_ci","slope_h","b_h_ci","u_h_ci","inter","b_inter","u_inter")
 
 save(file=here::here("result",paste0("Simu_Result_",var,"_",radius,".RData")),output,slopes)

@@ -204,7 +204,6 @@ for(i in 1:length(variables)){
   large_gam_formula=paste0(small_formula,"+",var)
   g_0<-gam(as.formula(small_formula),data=rad_cross)
   g_m<-gam(as.formula(large_gam_formula),data=rad_cross)
-  lrtest<-anova.gam(g_m,g_0,test="F")
   #glm comparison section
   small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel"
   large_gls_formula=paste0(small_formula,"+",var)

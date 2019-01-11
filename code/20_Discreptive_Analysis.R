@@ -1,5 +1,10 @@
+library(dplyr)
+library(psych)
+library(xtable)
+radius=75
+load(here::here("data",paste0("pb_gas_oil_",radius,".RData")))
+load(here::here("data",paste0("beta_gas_oil_avg_wind_",radius,".RData")))
 #Massage the beta dataset
-
 rad_all[is.na(rad_all$Radon),]$Radon=6
 rad_all$basin<-as.factor(rad_all$basin)
 #rad_all$log_dist<-log(rad_all$Coast_Dist)
@@ -8,17 +13,24 @@ rad_all$Oil_Field<-(rad_all$G_Oil_Num>0)
 rad_all$Gas_Field<-(rad_all$G_Gas_Num>0)
 rad_all$Play<-rad_all$Oil_Field|rad_all$Gas_Field
 
-rad_all[,grep("Prod",names(rad_all))]=rad_all[,grep("Prod",names(rad_all))]/1e6
-rad_all[,grep("Num",names(rad_all))]=rad_all[,grep("Num",names(rad_all))]/1e3
 #Current unit is aCi/L
 rad_all$beta<-rad_all$beta*1000
 rad_all$lbeta<-log(rad_all$beta)
 rad_cross$pb210<-rad_cross$pb210*1000
+rad_cross[is.na(rad_cross$Radon),]$Radon=6
+rad_cross$basin<-as.factor(rad_cross$basin)
+rad_cross$log_dist<-log(rad_cross$Coast_Dist)
+rad_cross$log_pb<-log(rad_cross$pb210)
 
+rad_cross$Oil_Field<-(rad_cross$G_Oil_Num>0)
+rad_cross$Gas_Field<-(rad_cross$G_Gas_Num>0)
+rad_cross$Play<-rad_cross$Oil_Field|rad_cross$Gas_Field
+rad_cross[is.na(rad_cross$Play),"Play"]<-F
 ##################
 #Descriptive Statistics
 play_data<-rad_cross[rad_cross$Play,]
 out_data<-rad_cross[!rad_cross$Play,]
+out_data[is.na(out_data)]<-0
 play_beta_data<-rad_all[rad_all$Play,]
 out_beta_data<-rad_all[!rad_all$Play,]
 write_row<-function(play_dat,out_dat,name)
@@ -105,6 +117,5 @@ row.names(table_3)<-c("beta","Radon Index","PM2.5","U-238","Wind velocity","HPBL
                       "beta & Radon","beta & PM2.5","beta & U238","beta & Wind velocity","beta & HPBL","beta & Dist to Coast",
                       "beta & Oil Prod","beta & Gas Prod"
 )
-library(xtable)
 xtable(table_2,digits = c(5,2,2,2,2,2,2,2,2,2,3))
 xtable(table_3,digits = c(5,2,2,2,2,2,2,2,2,2,3))

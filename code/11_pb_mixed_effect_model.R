@@ -57,7 +57,7 @@ options(dplyr.print_max = 1e9)
 #' this circle in the study period, this RadNet monitor is categorized as within gas/oil field.
 #' Otherwise, this RadNet monitor is categorized as clean ones.
 #+ Loading the Lead-210 and gas/oil production data within 25km, message=F, echo=F,warning=F 
-radius=75
+radius=50
 load(here::here("data",paste0("pb_gas_oil_",radius,".RData")))
 ##############################################
 #Massage the pb-210 dataset
@@ -154,7 +154,7 @@ addtorow$pos <- list(0, 0, 0)
 addtorow$command <-c("& \\multicolumn{6}{c}{GAM}&\\multicolumn{6}{c}{GLS}&\\multicolumn{6}{c}{SAR} \\\\\n",
                      "\\hline",
                      "Metric & Slope & P-value & 2.5\\%CI & 97.5\\%CI&Sens\\_Low&Sens\\_Up& Slope & P-value & 2.5\\%CI & 97.5\\%CI&Sens\\_Low&Sens\\_Up& Slope & P-value & 2.5\\%CI & 97.5\\%CI&Sens\\_Low&Sens\\_Up \\\\\n")
-table=xtable::xtable(result[,c(13,1,4,2,3,15,14,5,8,6,7,17,16,9,12,10,11,19,18)],caption="summary of three ways to adjust for spatial confounding (100 km case)",digits=4)
+table=xtable::xtable(result[,c(13,1,4,2,3,15,14,5,8,6,7,17,16,9,12,10,11,19,18)],caption=paste0("summary of three ways to adjust for spatial confounding (",radius ,"km case)"),digits=4)
 xtable::align(table)<-"|ll|rrrrrr|rrrrrr|rrrrrr|"
 print(table, floating = TRUE, floating.environment = "sidewaystable",include.rownames=F,scalebox = 0.85,add.to.row = addtorow,include.colnames=F,table.placement="htpb")
 #(result[result$gam_P<0.05,grepl("gam",names(result))])

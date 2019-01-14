@@ -22,6 +22,7 @@ library(rgeos)
 library(sp)
 library(cowplot)
 library(ggforce)
+library(reshape2)
 options(dplyr.print_max = 1e9)
 pw <- {
   "koutrakis"
@@ -728,8 +729,46 @@ play_beta_data$type="Play"
 play_beta_data$lb<-log(play_beta_data$beta)
 out_beta_data$lb<-log(out_beta_data$beta)
 out_beta_data$type="Out"
-vis_data<-rbind.data.frame(play_beta_data[,c("city_state","lb","m_month","type","YEAR")],
-                           out_beta_data[,c("city_state","lb","m_month","type","YEAR")])
-ggplot(data=vis_data,aes(x=m_month,y=lb))+geom_boxplot()
+vis_data<-rbind.data.frame(play_beta_data[,c("city_state","beta","m_month","type","YEAR")],
+                           out_beta_data[,c("city_state","beta","m_month","type","YEAR")])
+prod<-test_data%>%group_by(m_month)%>%summarise(year=mean(YEAR),month=mean(MONTH),
+                                                prod_h_oil=sum(H_Oil_Prod),
+                                               prod_v_oil=sum(V_Oil_Prod),
+                                               prod_h_gas=sum(H_Gas_Prod),
+                                               prod_v_gas=sum(V_Gas_Prod))
+prod<-prod%>%arrange(m_month)
+prod$prod_h_oil<-prod$prod_h_oil*1e6
+prod$prod_v_oil<-prod$prod_v_oil*1e6
 
-                         
+for(i in 3:130){
+  prod[i,]$prod_v_oil<-mean(prod[(i-2):(i+2),]$prod_v_oil)
+}
+
+prod_vis<-melt(prod,id.vars = c("m_month","year","month"))
+
+g<-ggplot()+
+  geom_bar(data = prod_vis[prod_vis$variable%in%c("prod_h_oil","prod_v_oil"),],aes(x=m_month,fill=variable,y=value/1e6),stat="identity",position="stack",colour="darkgrey",size=0.1)+
+  geom_smooth(data=vis_data,aes(x=m_month,y=beta,color=type),method = "loess",size=0.5)+
+  scale_color_manual(breaks=c("Play","Out"),
+                       values=c("Blue","Red"),
+                     labels=c("O&G Monitor","Clean Monitor"))+
+  scale_y_continuous(sec.axis = sec_axis(~.*1000000, name = "Oil Production [bbl]",breaks = c(5e6,1e7,1.5e7,2e7),labels = c("5M","10M","15M","20M")))+
+  labs(y = "Gross beta level [aCi/L]",
+              x = "Year")+
+  scale_fill_manual(breaks=c("prod_h_oil","prod_v_oil"),
+                    values=c("lightskyblue","lightsalmon"),
+                    labels=c("Unconventional Oil Production","Conventional Oil Production"))+
+  coord_cartesian(ylim = c(0,20))+
+  scale_x_continuous(breaks = seq(78,203,by=12),labels = seq(2007,2017),limits=c(72,203))+
+  theme_linedraw()+
+  theme(legend.position = c(0.2, 0.8),
+        axis.text=element_text(size=3),
+        axis.title=element_text(size=5,face="bold"),
+        legend.text=element_text(size=3),
+        legend.title = element_blank(),
+        legend.key.size = unit(0.25,"cm"),
+        legend.spacing.y = unit(-0.1, "cm"),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+g
+ggsave(here::here("trend.pdf"),g,width=8.7,height= 5.8,unit="cm")
+  

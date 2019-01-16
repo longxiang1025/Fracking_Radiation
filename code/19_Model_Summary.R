@@ -2,7 +2,9 @@ library(dplyr)
 library(mgcv)
 library(lme4)
 library(spdep)
+library(caret)
 library(xtable)
+library(progress)
 files<-list.files(here::here("result"))
 result<-list()
 sp_sens<-list()
@@ -65,9 +67,10 @@ print(table2,add.to.row = addtorow,include.colnames=F)
 #################################################
 #cross-sectional model summary table
 results<-list()
-j=0
-for(r in c(50,75,100)){
-  j=j+1
+pb <- progress_bar$new(total = 5*36)
+f=0
+for(r in c(50,75,100,125,150)){
+  f=f+1
   load(here::here("data",paste0("pb_gas_oil_",r,".RData")))
   ##############################################
   #Massage the pb-210 dataset
@@ -92,52 +95,107 @@ for(r in c(50,75,100)){
   W_dist<-nb2listw(W_dist, glist=NULL, style="W", zero.policy=NULL)
   
   variables<-names(rad_cross)[c(9:11,13:45)]
-  result<-matrix(0,ncol=12,nrow=length(variables))
+  result<-matrix(0,ncol=15,nrow=length(variables))
+  #clusters<-unique(rad_cross$city_state)
+  #sens_result<-list()
   for(i in 1:length(variables)){
+    pb$tick()
     var=variables[i]
     rad_cross[is.na(rad_cross[,var]),var]=0
     #gam comparison section
-    small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=23)"
-    large_gam_formula=paste0(small_formula,"+",var)
-    g_0<-gam(as.formula(small_formula),data=rad_cross)
+    small_gam_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel+s(Lon,Lat,k=23)"
+    large_gam_formula=paste0(small_gam_formula,"+",var)
+    g_0<-gam(as.formula(small_gam_formula),data=rad_cross)
     g_m<-gam(as.formula(large_gam_formula),data=rad_cross)
     #glm comparison section
     small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel"
-    large_gls_formula=paste0(small_formula,"+",var)
-    g_ls<-gls(as.formula(large_gls_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE,fixed = T),data=rad_cross)
+    large_formula=paste0(small_formula,"+",var)
+    g_ls_0<-gls(as.formula(small_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE,fixed = T),data=rad_cross)
+    g_ls<-gls(as.formula(large_formula),correlation=corGaus(form=~Lon+Lat,nugget=TRUE,fixed = T),data=rad_cross)
     t<-coef(g_ls)[7]/sqrt(diag(vcov(g_ls)))[7]
     #summary(g_ls)
-    sar_m<-lagsarlm(as.formula(large_gls_formula),data=rad_cross,listw =  W_dist)
+    sar_0<-lagsarlm(as.formula(small_formula),data=rad_cross,listw =  W_dist)
+    sar_m<-lagsarlm(as.formula(large_formula),data=rad_cross,listw =  W_dist)
     t2<-coef(sar_m)[8]/sqrt(diag(vcov(sar_m)))[8]
     #summary(sar_m)
     result[i,]<-c(coef(g_m)[7],
                   sqrt(diag(vcov.gam(g_m)))[7],
                   2*pnorm(-abs(coef(g_m)[7]/sqrt(diag(vcov.gam(g_m)))[7])),
-                  sum(residuals(g_m)^2),
+                  AIC(g_0),
+                  AIC(g_m),
                   coef(g_ls)[7],
                   sqrt(diag(vcov(g_ls)))[7],
                   2*pnorm(-abs(coef(g_ls)[7]/sqrt(diag(vcov(g_ls)))[7])),
-                  sum(residuals(g_ls)^2),
+                  AIC(g_ls_0),
+                  AIC(g_ls),
                   coef(sar_m)[8],
                   sqrt(diag(vcov(sar_m)))[8],
                   2*pnorm(-abs(coef(sar_m)[8]/sqrt(diag(vcov(sar_m)))[8])),
-                  sum(residuals(sar_m)^2)
+                  AIC(sar_0),
+                  AIC(sar_m)
     )
+    #calculate RMSE through leave-one-out cross validation
+    #this section was abolished due to tricky result
+    #cv_result<-matrix(0,nrow=length(clusters),ncol=7)
+    #for(c in 1:length(clusters)){
+    #  temp_data<-rad_cross%>%filter(city_state!=clusters[c])
+    #  gam_2<-gam(as.formula(large_gam_formula),data=temp_data)
+      
+    #  gls_2<-gls(as.formula(large_formula),
+    #            correlation=corGaus(form=~Lon+Lat,nugget=TRUE,fixed = T),data=temp_data)
+      
+    #  cv_coords <- as.matrix(temp_data[,c("Lon","Lat")])
+    #  cv_col.knn <- knearneigh(cv_coords, k=7)
+    #  cv_W_dist<-dnearneigh(cv_coords,0,1500,longlat = T)
+    #  cv_W_dist<-nb2listw(cv_W_dist, glist=NULL, style="W", zero.policy=NULL)
+    #  sar_2<-lagsarlm(as.formula(large_formula),data=temp_data,listw = cv_W_dist)
+    #  if(i==1){
+    #    gam_2_0<-gam(as.formula(small_gam_formula),data=temp_data)
+    #    gls_2_0<-gls(as.formula(small_formula),
+    #                 correlation=corGaus(form=~Lon+Lat,nugget=TRUE,fixed = T),data=temp_data)
+    #    sar_2_0<-lagsarlm(as.formula(small_formula),data=temp_data,listw = cv_W_dist)
+    #  }
+    #  cv_result[c,1:6]<-as.numeric(c(predict(gam_2,rad_cross%>%filter(city_state==clusters[c])),
+    #                                 predict(gam_2_0,rad_cross%>%filter(city_state==clusters[c])),
+    #                                 predict(gls_2,rad_cross%>%filter(city_state==clusters[c])),
+    #                                 predict(gls_2_0,rad_cross%>%filter(city_state==clusters[c])),
+    #                                 predict(sar_2,newdata=rad_cross,listw = W_dist)[c],
+    #                                 predict(sar_2_0,newdata=rad_cross,listw = W_dist)[c]))
+    #}
+    #cv_result<-as.data.frame(cv_result)
+    #names(cv_result)<-c("gam_pred","gam_bas_pred","gls_pred","gls_bas_pred","sar_pred",
+    #                    "sar_bas_pred","log_pb")
+    #cv_result$log_pb<-rad_cross$log_pb
+    #cv_result$metric=var
+    #result[i,4]<-sqrt(mean((rad_cross$log_pb-cv_result$gam_pred)^2))
+    #result[i,8]<-sqrt(mean((rad_cross$log_pb-cv_result$gls_pred)^2))
+    #result[i,12]<-sqrt(mean((rad_cross$log_pb-cv_result$sar_pred)^2))
+    #if(i==length(variables)){
+    #  result[i+1,4]=sqrt(mean((rad_cross$log_pb-cv_result$gam_bas_pred)^2))
+    #  result[i+1,8]<-sqrt(mean((rad_cross$log_pb-cv_result$gls_bas_pred)^2))
+    #  result[i+1,12]<-sqrt(mean((rad_cross$log_pb-cv_result$sar_bas_pred)^2))
+    #}
   }
   result<-as.data.frame(result)
-  names(result)<-c("gam_coef","gam_sd","gam_p","gam_res","gls_coef","gls_sd","gls_p","gls_res","sar_coef","sar_sd","sar_p","sar_res")
-  result$metric<-variables
-  result<-result%>%filter(gam_p<0.05,gls_p<0.05,sar_p<0.05)
+  names(result)<-c("gam_coef","gam_sd","gam_p","gam_basic_AIC","gam_metric_AIC",
+                   "gls_coef","gls_sd","gls_p","gls_basic_AIC","gls_metric_AIC",
+                   "sar_coef","sar_sd","sar_p","sar_basic_AIC","sar_metric_AIC")
+  result$metric<-NA
+  result[1:length(variables),]$metric<-variables
   print(result)
   result$coef<-0
   for(i in 1:nrow(result)){
     result[i,]$coef<-weighted.mean(x=c(result[i,]$gam_coef,result[i,]$gls_coef,result[i,]$sar_coef),w=c(1/result[i,]$gam_sd^2,1/result[i,]$gls_sd^2,1/result[i,]$sar_sd^2)) 
   }
-  names(result)[14]<-paste0("coef_",r)
-  results[[j]]=result
+  names(result)[17]<-paste0("coef_",r)
+  results[[f]]=result
 }
-table<-full_join(results[[1]][,c(13,14)],results[[2]][,c(13,14)])
-table<-full_join(table,results[[3]][,c(13,14)])
+table<-full_join(results[[1]][,c(16,17)],results[[2]][,c(16,17)])
+table<-full_join(table,results[[3]][,c(16,17)])
+table<-full_join(table,results[[4]][,c(16,17)])
+table<-full_join(table,results[[5]][,c(16,17)])
+
+
 table$Metric<-c("Gross Prod of Oil","Prod Dens of Oil From Unconv Drills","Prod Dens of Oil From All Wells",
                 "Prod of Oil From Unconv Drills","Prod of Oil From Conv Drills","Prod of Oil From All Upwind Wells",
                 "Num of Unconv Drills","Num of All Active Oil Wells","Prod Dens of Oil From Conv Drills","Number of Conv Drills")

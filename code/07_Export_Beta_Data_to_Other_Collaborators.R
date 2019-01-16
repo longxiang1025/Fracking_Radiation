@@ -27,6 +27,7 @@ con <- dbConnect(drv, dbname = "Fracking_Data",
                  user = "postgres", password = pw)
 rm(pw) # removes the password
 source(here::here("code","00_Template_SQL_Command.R"))
+source(here::here("code","00_Functions.R"))
 RadNet_City_List<-read_csv(here::here("data","Processed-RadNet-Beta-citylist.csv"))
 radnet_usgs_radio<-read_csv(here::here("data","radnet_radioraster_summary.csv"))
 radnet_usgs_radio$city_state<-paste0(radnet_usgs_radio$city,",",radnet_usgs_radio$state)
@@ -87,8 +88,16 @@ for(r in c(25000,50000,75000,100000)){
   prod_db <- tbl(con, "Well_Production_Table")
   prod_db<-prod_db%>%filter(API%in%city_well_relation$`API/UWI`&Prod_Year>2006&Prod_Year<2018)
   print(Sys.time())
-  city_prod<-city_well_relation%>%
-    left_join(prod_db,by=c("API/UWI"="API"),copy=T)
+  city_prod<-list()
+  for(year in 2007:2017){
+    prod_year<-prod_db%>%filter(Prod_Year==year)
+    prod_year<-as.data.frame(prod_year)
+    temp=city_well_relation%>%filter(city_well_relation$`API/UWI`%in%prod_year$API)
+    city_prod[[year-2006]]<-city_well_relation%>%
+      inner_join(prod_year,by=c("API/UWI"="API"),copy=T)
+    print(year)
+  }
+  city_prod<-do.call(rbind,city_prod)
   print(Sys.time())
   city_prod<-city_prod%>%filter(!is.na(Prod_Year))
   city_prod[city_prod$`Drill Type`=="D",]$`Drill Type`="H"

@@ -91,8 +91,6 @@ for(r in c(25000,50000,75000,100000)){
   city_prod<-list()
   for(year in 2007:2017){
     prod_year<-prod_db%>%filter(Prod_Year==year)
-    prod_year<-as.data.frame(prod_year)
-    temp=city_well_relation%>%filter(city_well_relation$`API/UWI`%in%prod_year$API)
     city_prod[[year-2006]]<-city_well_relation%>%
       inner_join(prod_year,by=c("API/UWI"="API"),copy=T)
     print(year)

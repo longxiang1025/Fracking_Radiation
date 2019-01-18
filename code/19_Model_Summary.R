@@ -67,9 +67,9 @@ print(table2,add.to.row = addtorow,include.colnames=F)
 #################################################
 #cross-sectional model summary table
 results<-list()
-pb <- progress_bar$new(total = 5*36)
+pb <- progress_bar$new(total = 7*36)
 f=0
-for(r in c(50,75,100,125,150)){
+for(r in c(50,75,100,125,150,175,200)){
   f=f+1
   load(here::here("data",paste0("pb_gas_oil_",r,".RData")))
   ##############################################
@@ -121,18 +121,18 @@ for(r in c(50,75,100,125,150)){
     result[i,]<-c(coef(g_m)[7],
                   sqrt(diag(vcov.gam(g_m)))[7],
                   2*pnorm(-abs(coef(g_m)[7]/sqrt(diag(vcov.gam(g_m)))[7])),
-                  AIC(g_0),
-                  AIC(g_m),
+                  sqrt(mean(residuals(g_0)^2)),
+                  sqrt(mean(residuals(g_m)^2)),
                   coef(g_ls)[7],
                   sqrt(diag(vcov(g_ls)))[7],
                   2*pnorm(-abs(coef(g_ls)[7]/sqrt(diag(vcov(g_ls)))[7])),
-                  AIC(g_ls_0),
-                  AIC(g_ls),
+                  sqrt(mean(residuals(g_ls_0)^2)),
+                  sqrt(mean(residuals(g_ls)^2)),
                   coef(sar_m)[8],
                   sqrt(diag(vcov(sar_m)))[8],
                   2*pnorm(-abs(coef(sar_m)[8]/sqrt(diag(vcov(sar_m)))[8])),
-                  AIC(sar_0),
-                  AIC(sar_m)
+                  sqrt(mean(residuals(sar_0)^2)),
+                  sqrt(mean(residuals(sar_m)^2))
     )
     #calculate RMSE through leave-one-out cross validation
     #this section was abolished due to tricky result
@@ -177,9 +177,9 @@ for(r in c(50,75,100,125,150)){
     #}
   }
   result<-as.data.frame(result)
-  names(result)<-c("gam_coef","gam_sd","gam_p","gam_basic_AIC","gam_metric_AIC",
-                   "gls_coef","gls_sd","gls_p","gls_basic_AIC","gls_metric_AIC",
-                   "sar_coef","sar_sd","sar_p","sar_basic_AIC","sar_metric_AIC")
+  names(result)<-c("gam_coef","gam_sd","gam_p","gam_basic_rmse","gam_metric_rmse",
+                   "gls_coef","gls_sd","gls_p","gls_basic_rmse","gls_metric_rmse",
+                   "sar_coef","sar_sd","sar_p","sar_basic_rmse","sar_metric_rmse")
   result$metric<-NA
   result[1:length(variables),]$metric<-variables
   print(result)
@@ -195,7 +195,79 @@ table<-full_join(table,results[[3]][,c(16,17)])
 table<-full_join(table,results[[4]][,c(16,17)])
 table<-full_join(table,results[[5]][,c(16,17)])
 
+gam_list<-list()
+gls_list<-list()
+sar_list<-list()
+for(i in 1:length(variables)){
+  gam_data<-rbind.data.frame(results[[1]][i,c(1:5,16)],
+        results[[2]][i,c(1:5,16)],
+        results[[3]][i,c(1:5,16)],
+        results[[4]][i,c(1:5,16)],
+        results[[5]][i,c(1:5,16)],
+        results[[6]][i,c(1:5,16)],
+        results[[7]][i,c(1:5,16)])
+  gam_data$radius<-c(50,75,100,125,150,175,200)
+  gam_list[[i]]<-gam_data
+  
+  gls_data<-rbind.data.frame(results[[1]][i,c(6:10,16)],
+                             results[[2]][i,c(6:10,16)],
+                             results[[3]][i,c(6:10,16)],
+                             results[[4]][i,c(6:10,16)],
+                             results[[5]][i,c(6:10,16)],
+                             results[[6]][i,c(6:10,16)],
+                             results[[7]][i,c(6:10,16)])
+  gls_data$radius<-c(50,75,100,125,150,175,200)
+  gls_list[[i]]<-gls_data
+  
+  sar_data<-rbind.data.frame(results[[1]][i,c(11:15,16)],
+                             results[[2]][i,c(11:15,16)],
+                             results[[3]][i,c(11:15,16)],
+                             results[[4]][i,c(11:15,16)],
+                             results[[5]][i,c(11:15,16)],
+                             results[[6]][i,c(11:15,16)],
+                             results[[7]][i,c(11:15,16)])
+  sar_data$radius<-c(50,75,100,125,150,175,200)
+  sar_list[[i]]<-sar_data
+}
 
+gam_list<-do.call(rbind,gam_list)
+gls_list<-do.call(rbind,gls_list)
+sar_list<-do.call(rbind,sar_list)
+
+metric_list<-unique(gam_list[gam_list$gam_p<0.05,"metric"])
+
+variables<-as.data.frame(variables)
+variables$rank=row.names(variables)
+variables<-variables%>%filter(!grepl("G_",variables))
+
+gam_metric<-gam_list%>%filter(metric%in%metric_list)
+gam_metric<-gam_metric[,c("gam_metric_rmse","metric","radius")]
+gam_metric<-variables%>%inner_join(gam_metric,by=c("variables"="metric"))
+names(gam_metric)<-c("metric","rank","rmse","Radius")
+gam_metric$rank<-as.numeric(gam_metric$rank)
+
+gam_min<-gam_metric%>%group_by(metric)%>%summarise(which.min(rmse))
+gam_min$`which.min(rmse)`<-25*gam_min$`which.min(rmse)`+25
+names(gam_min)<-c("metric","min")
+ggplot(data=gam_metric,aes(x=Radius,y=reorder(metric,rank)))+
+  geom_tile(aes(fill=rmse),color="white")+scale_fill_distiller(palette = "Spectral")+
+  geom_tile(data=gam_min,aes(x=min,y=metric),fill=NA,color="black",size=2)+
+  scale_x_continuous(breaks = c(50,75,100,125,150,175,200))
+
+sar_metric<-sar_list%>%filter(metric%in%metric_list)
+sar_metric<-sar_metric[,c("sar_metric_rmse","metric","radius")]
+sar_metric<-variables%>%inner_join(sar_metric,by=c("variables"="metric"))
+names(sar_metric)<-c("metric","rank","rmse","Radius")
+sar_metric$rank<-as.numeric(sar_metric$rank)
+
+sar_min<-sar_metric%>%group_by(metric)%>%summarise(which.min(rmse))
+sar_min$`which.min(rmse)`<-25*sar_min$`which.min(rmse)`+25
+names(sar_min)<-c("metric","min")
+ggplot(data=sar_metric,aes(x=Radius,y=reorder(metric,rank)))+
+  geom_tile(aes(fill=rmse),color="white")+scale_fill_distiller(palette = "Spectral")+
+  geom_tile(data=sar_min,aes(x=min,y=metric),fill=NA,color="black",size=2)+
+  scale_x_continuous(breaks = c(50,75,100,125,150,175,200))
+  
 table$Metric<-c("Gross Prod of Oil","Prod Dens of Oil From Unconv Drills","Prod Dens of Oil From All Wells",
                 "Prod of Oil From Unconv Drills","Prod of Oil From Conv Drills","Prod of Oil From All Upwind Wells",
                 "Num of Unconv Drills","Num of All Active Oil Wells","Prod Dens of Oil From Conv Drills","Number of Conv Drills")

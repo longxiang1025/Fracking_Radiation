@@ -82,6 +82,7 @@ for(r in c(50,75,100,125,150,175,200)){
   rad_cross$Oil_Field<-(rad_cross$G_Oil_Num>0)
   rad_cross$Gas_Field<-(rad_cross$G_Gas_Num>0)
   rad_cross$Play<-rad_cross$Oil_Field|rad_cross$Gas_Field
+  rad_cross[is.na(rad_cross$Play),]$Play<-FALSE
   
   rad_cross[,grep("Prod",names(rad_cross))]=rad_cross[,grep("Prod",names(rad_cross))]/1e6
   rad_cross[,grep("Num",names(rad_cross))]=rad_cross[,grep("Num",names(rad_cross))]/1e3
@@ -91,23 +92,25 @@ for(r in c(50,75,100,125,150,175,200)){
   rad_cross$ppm<-rad_cross$pb210/rad_cross$mass
   
   variables<-names(rad_cross)[c(9:11,13:45)]
-  result<-matrix(0,ncol=12,nrow=length(variables))
+  result<-matrix(0,ncol=14,nrow=length(variables))
   for(i in 1:length(variables)){
     pb$tick()
     var=variables[i]
     rad_cross[is.na(rad_cross[,var]),var]=0
     #lm comparison section
-    small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel"
+    small_formula="log_pb~Radon+mass+Coast_Dist+Umeans+vel+Play"
     large_formula=paste0(small_formula,"+",var)
     lm_0<-lm(as.formula(small_formula),data=rad_cross)
     lm_m<-lm(as.formula(large_formula),data=rad_cross)
-    t<-coef(lm_m)[7]/sqrt(diag(vcov(lm_m)))[7]
-    result[i,1:6]<-c(coef(lm_m)[7],
-                  sqrt(diag(vcov(lm_m)))[7],
-                  2*pnorm(-abs(coef(lm_m)[7]/sqrt(diag(vcov(lm_m)))[7])),
+    t<-coef(lm_m)[var]/sqrt(diag(vcov(lm_m)))[var]
+    result[i,1:8]<-c(coef(lm_m)[var],
+                  sqrt(diag(vcov(lm_m)))[var],
+                  2*pnorm(-abs(coef(lm_m)[var]/sqrt(diag(vcov(lm_m)))[var])),
                   sqrt(mean(residuals(lm_0)^2)),
                   sqrt(mean(residuals(lm_m)^2)),
-                  1-var(lm_m$residuals)/var(rad_cross$log_pb)
+                  1-var(lm_m$residuals)/var(rad_cross$log_pb),
+                  AIC(lm_0),
+                  AIC(lm_m)
     )
     #calculate RMSE through 10-fold cross validation
     dep_var<-rad_cross$log_pb
@@ -116,7 +119,7 @@ for(r in c(50,75,100,125,150,175,200)){
       x=ind_var, y=dep_var,
       method = "lm",
       trControl = trainControl(
-        method = "cv", number = 50
+        method = "cv", number = 100,p=0.99
       )
     )
     ind_m_var<-rad_cross[,c("Radon","mass","Coast_Dist","Umeans","vel",var)]
@@ -124,14 +127,14 @@ for(r in c(50,75,100,125,150,175,200)){
       x=ind_m_var, y=dep_var,
       method = "lm",
       trControl = trainControl(
-        method = "cv", number = 50
+        method = "cv", number = 100,p=0.99
       )
     )
-    result[i,7:9]<-as.numeric(model_0$results[2:4])
-    result[i,10:12]<-as.numeric(model_m$results[2:4])
+    result[i,9:11]<-as.numeric(model_0$results[2:4])
+    result[i,12:14]<-as.numeric(model_m$results[2:4])
   }
   result<-as.data.frame(result)
-  names(result)<-c("slope","sd","p_value","RMSE_Basic","RMSE_Metric","Metric_RS",
+  names(result)<-c("slope","sd","p_value","RMSE_Basic","RMSE_Metric","Metric_RS","AIC_Basic","AIC_Metric",
                    "CV_Basic_RMSE","CV_Basic_RS","CV_Basic_MAE","CV_Metric_RMSE","CV_Metric_RS","CV_Metric_MAE")
   result$metric<-NA
   result[1:length(variables),]$metric<-variables
@@ -153,29 +156,17 @@ variables<-variables%>%filter(!grepl("G_",variables))
 lm_data<-lm_data%>%filter(metric%in%metric_list$metric)
 metric_list<-variables%>%inner_join(lm_data,by=c("variables"="metric"))
 
-lm_min<-metric_list%>%group_by(variables)%>%summarise(which.max(Metric_RS))
+lm_min<-metric_list%>%group_by(variables)%>%summarise(which.min(CV_Metric_RMSE))
 names(lm_min)<-c("metric","min")
 lm_min$min<-25*lm_min$min+25
+metric_list[metric_list$p_value>0.05,]$CV_Metric_RMSE<-NA
 ggplot(data=metric_list,aes(x=radius,y=reorder(variables,rank)))+
-  geom_tile(aes(fill=Metric_RS),color="white")+
-  scale_fill_distiller("Correlation",palette = "Spectral")+
-  geom_tile(data=lm_min,aes(x=min,y=metric),fill=NA,color="black",size=2)+
+  geom_tile(aes(fill=CV_Metric_RMSE),color="white",width=25)+
+  scale_fill_distiller("RMSE",palette = "Spectral",na.value = NA)+
+  geom_tile(data=lm_min,aes(x=min,y=metric),fill=NA,color="black",size=2,width=25)+
   scale_x_continuous(breaks = c(50,75,100,125,150,175,200))+
   ylab("O&G Metric")
 
-sar_metric<-sar_list%>%filter(metric%in%metric_list)
-sar_metric<-sar_metric[,c("sar_metric_rmse","metric","radius")]
-sar_metric<-variables%>%inner_join(sar_metric,by=c("variables"="metric"))
-names(sar_metric)<-c("metric","rank","rmse","Radius")
-sar_metric$rank<-as.numeric(sar_metric$rank)
-
-sar_min<-sar_metric%>%group_by(metric)%>%summarise(which.min(rmse))
-sar_min$`which.min(rmse)`<-25*sar_min$`which.min(rmse)`+25
-names(sar_min)<-c("metric","min")
-ggplot(data=sar_metric,aes(x=Radius,y=reorder(metric,rank)))+
-  geom_tile(aes(fill=rmse),color="white")+scale_fill_distiller(palette = "Spectral")+
-  geom_tile(data=sar_min,aes(x=min,y=metric),fill=NA,color="black",size=2)+
-  scale_x_continuous(breaks = c(50,75,100,125,150,175,200))
   
 table$Metric<-c("Gross Prod of Oil","Prod Dens of Oil From Unconv Drills","Prod Dens of Oil From All Wells",
                 "Prod of Oil From Unconv Drills","Prod of Oil From Conv Drills","Prod of Oil From All Upwind Wells",

@@ -1,0 +1,12 @@
+Universe = vanilla
+Executable = /usr/local/bin/R
+Arguments = --no-save --vanilla --args $(Process)
+getenv          = True
+environment= R_LIBS_USER=/nfs/home/L/lol087/.R/library-x86_64:/usr/lib64/R/library:/usr/share/R/library:/nfs/tools/lib/R/2019-08-01-00-00
+
+input = /nfs/home/L/lol087/shared_space/ci3_lol087/Fracking_Radiation/code/55_Download_DI_Access.R
+error = /nfs/home/L/lol087/shared_space/ci3_lol087/Fracking_Radiation/error/error.$(Process)
+
+Request_Cpus = 1
+Request_Memory = 9192
+Queue 3109
